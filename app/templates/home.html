@@ -2,19 +2,26 @@
 
 {% block content %}
 <div class="hero">
-    <h1>Restaurant Health Inspection Scores</h1>
-    <p>Search scores, violation history, and risk tiers for restaurants across the US.</p>
+    <h1>Restaurant &amp; Facility Health Inspection Scores</h1>
+    <p>Free, public health inspection records — scores, violation history, and risk tiers for restaurants, schools, hospitals, and more.</p>
     <form class="search-form" action="/" method="get">
         <input
             type="text"
             name="q"
             class="search-input"
-            placeholder="Search restaurant name..."
+            placeholder="Search by facility name..."
             value="{{ search_query or '' }}"
             autocomplete="off"
         >
         <button type="submit" class="search-btn">Search</button>
     </form>
+    {% if total_restaurants %}
+    <div class="hero-stats">
+        <div class="hero-stat"><strong>{{ "{:,}".format(total_restaurants) }}</strong> facilities</div>
+        <div class="hero-stat"><strong>{{ "{:,}".format(total_inspections) }}</strong> inspections</div>
+        <div class="hero-stat"><strong>{{ regions|length }}</strong> region{{ 's' if regions|length != 1 else '' }}</div>
+    </div>
+    {% endif %}
 </div>
 
 <div class="container">
@@ -33,7 +40,7 @@
     <div class="feed-list" style="margin-bottom: 32px;">
         {% for r in search_results %}
         <a href="/{{ r.region }}/{{ r.slug }}/" class="feed-item">
-            <div class="feed-name">{{ r.name }}</div>
+            <div class="feed-name">{{ r.display_name }}</div>
             <div class="feed-meta">{{ r.city }}, {{ r.state }} · {{ r.region.replace('-', ' ').title() }}</div>
             <div class="feed-score"
                 {% if r.score_tier %}style="color: var(--tier-{{ r.score_tier }})"{% endif %}>
@@ -64,13 +71,19 @@
     {% endif %}
 
     {% if recent_inspections %}
-    <div class="section-header">
-        <h2>Recently Inspected</h2>
+    <div class="section-header" style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;">
+        <div>
+            <h2>Recently Inspected</h2>
+        </div>
+        <div class="feed-toggle">
+            <a href="/?feed=restaurants" class="feed-toggle-btn{% if feed != 'all' %} active{% endif %}">Restaurants</a>
+            <a href="/?feed=all" class="feed-toggle-btn{% if feed == 'all' %} active{% endif %}">All Types</a>
+        </div>
     </div>
     <div class="feed-list">
         {% for inspection, restaurant in recent_inspections %}
         <a href="/{{ restaurant.region }}/{{ restaurant.slug }}/" class="feed-item">
-            <div class="feed-name">{{ restaurant.name }}</div>
+            <div class="feed-name">{{ restaurant.display_name }}</div>
             <div class="feed-meta">{{ restaurant.city }}, {{ restaurant.state }} · {{ inspection.inspection_date|format_date }}</div>
             <div class="feed-score"
                 {% if inspection.score_tier %}style="color: var(--tier-{{ inspection.score_tier }})"{% endif %}>
@@ -82,13 +95,14 @@
     {% endif %}
 
     {% if low_scores_this_month %}
-    <div class="section-header">
+    <div class="section-header" style="margin-top: 28px;">
         <h2>Lowest Scores This Month</h2>
+        <p class="section-desc">Facilities with the lowest inspection scores in the past 30 days.</p>
     </div>
-    <div class="feed-list">
+    <div class="feed-list feed-list--warning">
         {% for inspection, restaurant in low_scores_this_month %}
         <a href="/{{ restaurant.region }}/{{ restaurant.slug }}/" class="feed-item">
-            <div class="feed-name">{{ restaurant.name }}</div>
+            <div class="feed-name">{{ restaurant.display_name }}</div>
             <div class="feed-meta">{{ restaurant.city }}, {{ restaurant.state }} · {{ inspection.inspection_date|format_date }}</div>
             <div class="feed-score"
                 {% if inspection.score_tier %}style="color: var(--tier-{{ inspection.score_tier }})"{% endif %}>

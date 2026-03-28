@@ -53,7 +53,7 @@
     <div class="feed-list" style="margin-bottom: 32px;">
         {% for r in search_results %}
         <a href="/{{ r.region }}/{{ r.slug }}/" class="feed-item">
-            <div class="feed-name">{{ r.name }}</div>
+            <div class="feed-name">{{ r.display_name }}</div>
             <div class="feed-meta">{{ r.city }}, {{ r.state }}</div>
             <div class="feed-score"
                 {% if r.score_tier %}style="color: var(--tier-{{ r.score_tier }})"{% endif %}>
@@ -67,17 +67,49 @@
     {% endif %}
     {% endif %}
 
-    {% if neighborhoods %}
+    {% if cuisine_types %}
     <div class="section-header">
-        <h2>Neighborhoods &amp; Cities</h2>
+        <h2>Browse by Type</h2>
     </div>
-    <div class="neighborhood-grid">
-        {% for nbhd in neighborhoods %}
-        <a href="/{{ region }}/{{ nbhd.city_slug }}/" class="neighborhood-card">
+    <div class="neighborhood-grid neighborhood-grid--types">
+        {% for ct in cuisine_types|sort(attribute='label') %}
+        <a href="/{{ region }}/{{ ct.slug }}/" class="neighborhood-card">
+            <h3>{{ ct.label }}</h3>
+            <p>{{ ct.count }} location{{ 's' if ct.count != 1 else '' }}</p>
+        </a>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if top_cities and top_cities|length > 1 %}
+    <div class="section-header">
+        <h2>Top Cities</h2>
+    </div>
+    <div class="neighborhood-grid neighborhood-grid--featured">
+        {% for nbhd in top_cities %}
+        <a href="/{{ region }}/{{ nbhd.city_slug }}/" class="neighborhood-card neighborhood-card--featured">
             <h3>{{ nbhd.city or 'Unknown' }}</h3>
             <p>{{ nbhd.count }} restaurant{{ 's' if nbhd.count != 1 else '' }}</p>
         </a>
         {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if neighborhoods %}
+    <div class="section-header">
+        <h2>All Cities &amp; Neighborhoods</h2>
+    </div>
+    <input type="checkbox" id="cities-toggle" class="mobile-cities-toggle">
+    <label for="cities-toggle" class="mobile-cities-label">Show all cities</label>
+    <div class="mobile-cities-content">
+        <div class="neighborhood-grid">
+            {% for nbhd in neighborhoods %}
+            <a href="/{{ region }}/{{ nbhd.city_slug }}/" class="neighborhood-card">
+                <h3>{{ nbhd.city or 'Unknown' }}</h3>
+                <p>{{ nbhd.count }} restaurant{{ 's' if nbhd.count != 1 else '' }}</p>
+            </a>
+            {% endfor %}
+        </div>
     </div>
     {% endif %}
 
@@ -88,7 +120,7 @@
     <div class="feed-list" style="margin-bottom: 32px;">
         {% for r, insp in top_restaurants %}
         <a href="/{{ r.region }}/{{ r.slug }}/" class="feed-item">
-            <div class="feed-name">{{ r.name }}</div>
+            <div class="feed-name">{{ r.display_name }}</div>
             <div class="feed-meta">{{ r.city }}, {{ r.state }}</div>
             <div class="feed-score"
                 {% if insp.score_tier %}style="color: var(--tier-{{ insp.score_tier }})"{% endif %}>
@@ -106,7 +138,7 @@
     <div class="feed-list" style="margin-bottom: 32px;">
         {% for r, insp in bottom_restaurants %}
         <a href="/{{ r.region }}/{{ r.slug }}/" class="feed-item">
-            <div class="feed-name">{{ r.name }}</div>
+            <div class="feed-name">{{ r.display_name }}</div>
             <div class="feed-meta">{{ r.city }}, {{ r.state }}</div>
             <div class="feed-score"
                 {% if insp.score_tier %}style="color: var(--tier-{{ insp.score_tier }})"{% endif %}>
@@ -124,7 +156,7 @@
     <div class="feed-list">
         {% for inspection, restaurant in recent_inspections %}
         <a href="/{{ restaurant.region }}/{{ restaurant.slug }}/" class="feed-item">
-            <div class="feed-name">{{ restaurant.name }}</div>
+            <div class="feed-name">{{ restaurant.display_name }}</div>
             <div class="feed-meta">{{ restaurant.city }}, {{ restaurant.state }} · {{ inspection.inspection_date|format_date }}</div>
             <div class="feed-score"
                 {% if inspection.score_tier %}style="color: var(--tier-{{ inspection.score_tier }})"{% endif %}>

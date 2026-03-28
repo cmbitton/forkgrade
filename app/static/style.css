@@ -1,7 +1,7 @@
 :root {
-    --bg: #FAFAF8;
+    --bg: #F2F0EB;
     --surface: #FFFFFF;
-    --border: #E8E6E1;
+    --border: #E2DFD8;
     --text-primary: #1A1A18;
     --text-secondary: #6B6962;
     --text-muted: #9C9890;
@@ -40,8 +40,18 @@ nav {
     color: #fff;
     text-decoration: none;
     letter-spacing: -0.3px;
+    display: flex;
+    align-items: center;
+    gap: 7px;
 }
 .nav-brand span { color: #7EBF80; }
+.nav-fork {
+    width: 13px;
+    height: 22px;
+    flex-shrink: 0;
+    position: relative;
+    top: -1px;
+}
 .nav-links { display: flex; gap: 24px; }
 .nav-links a {
     color: #A8A8A0;
@@ -67,13 +77,14 @@ nav {
 .container {
     max-width: 900px;
     margin: 0 auto;
-    padding: 20px 24px 60px;
+    padding: 20px 24px 0;
 }
 
 /* HEADER CARD */
 .header-card {
     background: var(--surface);
     border: 1px solid var(--border);
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
     border-radius: 12px;
     padding: 32px;
     margin-bottom: 20px;
@@ -162,12 +173,17 @@ nav {
 .summary-block {
     background: var(--surface);
     border: 1px solid var(--border);
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
     border-radius: 12px;
     padding: 24px 32px;
     margin-bottom: 20px;
     font-size: 15px;
     color: var(--text-secondary);
     line-height: 1.75;
+}
+.summary-block--ai {
+    border-left: 3px solid var(--accent);
+    padding-left: 29px;
 }
 .summary-block p:first-child {
     color: var(--text-primary);
@@ -187,6 +203,7 @@ nav {
 .stat-card {
     background: var(--surface);
     border: 1px solid var(--border);
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
     border-radius: 10px;
     padding: 18px 16px;
     text-align: center;
@@ -205,7 +222,14 @@ nav {
     color: var(--text-muted);
     font-family: 'DM Mono', monospace;
     text-transform: uppercase;
-    letter-spacing: 0.5px;
+    letter-spacing: 0.8px;
+}
+.stat-sub {
+    display: block;
+    font-size: 10px;
+    text-transform: none;
+    letter-spacing: 0;
+    opacity: 0.65;
 }
 
 /* SECTION HEADERS */
@@ -220,6 +244,7 @@ nav {
 .timeline-section {
     background: var(--surface);
     border: 1px solid var(--border);
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
     border-radius: 12px;
     padding: 28px 32px;
     margin-bottom: 20px;
@@ -259,14 +284,15 @@ nav {
     border-radius: 6px;
     flex-shrink: 0;
 }
-.timeline-score.pass { background: var(--accent-light); color: var(--tier-low); }
-.timeline-score.warn { background: var(--warning-light); color: var(--tier-med); }
-.timeline-score.fail { background: var(--danger-light); color: var(--tier-high); }
+.timeline-score.low    { background: var(--accent-light); color: var(--tier-low); }
+.timeline-score.medium { background: var(--warning-light); color: var(--tier-med); }
+.timeline-score.high   { background: var(--danger-light); color: var(--tier-high); }
 
 /* VIOLATIONS TABLE */
 .violations-section {
     background: var(--surface);
     border: 1px solid var(--border);
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
     border-radius: 12px;
     padding: 28px 32px;
     margin-bottom: 20px;
@@ -395,6 +421,7 @@ nav {
     font-size: 12px;
     color: var(--text-muted);
 }
+.page-footer strong { color: #7EBF80; font-weight: 600; }
 .footer-links { display: flex; gap: 16px; }
 .footer-links a { color: var(--text-muted); text-decoration: none; }
 .footer-links a:hover { color: var(--text-secondary); }
@@ -425,6 +452,21 @@ nav {
     font-size: 17px;
     color: var(--text-secondary);
     margin-bottom: 32px;
+}
+.hero-stats {
+    display: flex;
+    justify-content: center;
+    gap: 32px;
+    margin-top: 24px;
+    flex-wrap: wrap;
+}
+.hero-stat {
+    font-size: 14px;
+    color: var(--text-muted);
+}
+.hero-stat strong {
+    color: var(--text-primary);
+    font-weight: 600;
 }
 .search-form {
     display: flex;
@@ -483,10 +525,16 @@ nav {
 .feed-list {
     background: var(--surface);
     border: 1px solid var(--border);
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
     border-radius: 12px;
     overflow: hidden;
     margin-bottom: 32px;
 }
+.feed-list--warning {
+    background: #FFF5F5;
+    border-color: #F5C6C6;
+}
+.feed-list--warning .feed-item:hover { background: #FFF0F0; }
 .feed-item {
     display: flex;
     align-items: center;
@@ -498,7 +546,7 @@ nav {
     transition: background 0.1s;
 }
 .feed-item:last-child { border-bottom: none; }
-.feed-item:hover { background: var(--bg); }
+.feed-item:hover { background: #ECEAE4; }
 .feed-name {
     font-weight: 600;
     font-size: 14px;
@@ -683,3 +731,244 @@ nav {
     .region-stats { flex-wrap: wrap; gap: 16px; }
     .violation-legend { flex-wrap: wrap; gap: 10px; }
 }
+
+/* ===================== MOBILE: BROWSE BY TYPE — HORIZONTAL SCROLL ===================== */
+/* Override the single-column grid collapse with a scrollable flex row */
+@media (max-width: 700px) {
+    .neighborhood-grid--types {
+        display: flex;
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+        gap: 10px;
+        padding-bottom: 6px;
+        /* undo the 1fr grid set above */
+        grid-template-columns: unset;
+    }
+    .neighborhood-grid--types::-webkit-scrollbar { display: none; }
+    .neighborhood-grid--types .neighborhood-card {
+        flex: 0 0 145px;
+    }
+}
+
+/* ===================== MOBILE: ALL CITIES — CHECKBOX COLLAPSE ===================== */
+/* The input is always visually hidden; the label acts as the toggle on mobile only */
+.mobile-cities-toggle { display: none; }
+
+@media (max-width: 700px) {
+    .mobile-cities-label {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 10px 16px;
+        margin-bottom: 12px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: 500;
+        color: var(--text-secondary);
+        user-select: none;
+    }
+    .mobile-cities-label::after {
+        content: 'Show all +';
+        font-size: 12px;
+        color: var(--accent);
+        font-weight: 600;
+        white-space: nowrap;
+        margin-left: 12px;
+    }
+    /* label is a sibling after the input, so ~ works */
+    .mobile-cities-toggle:checked ~ .mobile-cities-label::after {
+        content: 'Hide −';
+    }
+    .mobile-cities-content { display: none; }
+    .mobile-cities-toggle:checked ~ .mobile-cities-content { display: block; }
+}
+@media (min-width: 701px) {
+    .mobile-cities-label { display: none; }
+    .mobile-cities-content { display: block; }
+}
+
+
+.internal-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 32px;
+    padding-top: 24px;
+    border-top: 1px solid var(--border);
+}
+.internal-links a {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    text-decoration: none;
+    padding: 8px 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.internal-links a:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+    background: var(--accent-light);
+}
+
+/* SECTION DESCRIPTION */
+.section-desc {
+    font-size: 14px;
+    color: var(--text-muted);
+    margin-top: 4px;
+}
+
+/* FEED TOGGLE (Restaurants | All Facilities) */
+.feed-toggle {
+    display: flex;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    font-size: 13px;
+}
+.feed-toggle-btn {
+    padding: 6px 14px;
+    text-decoration: none;
+    color: var(--text-secondary);
+    background: var(--surface);
+    transition: background 0.15s, color 0.15s;
+}
+.feed-toggle-btn + .feed-toggle-btn {
+    border-left: 1px solid var(--border);
+}
+.feed-toggle-btn.active {
+    background: var(--text-primary);
+    color: #fff;
+}
+.feed-toggle-btn:hover:not(.active) { background: var(--bg); }
+
+/* FEED CITY LINK (inline city link in meta) */
+.feed-city-link {
+    color: var(--text-muted);
+    text-decoration: none;
+}
+.feed-city-link:hover { text-decoration: underline; }
+
+/* SORT BAR */
+.sort-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+    font-size: 13px;
+}
+.sort-label {
+    color: var(--text-muted);
+    font-family: 'DM Mono', monospace;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-size: 11px;
+}
+.sort-btn {
+    padding: 5px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    text-decoration: none;
+    color: var(--text-secondary);
+    background: var(--surface);
+    transition: border-color 0.15s, color 0.15s;
+}
+.sort-btn.active {
+    background: var(--text-primary);
+    color: #fff;
+    border-color: var(--text-primary);
+}
+.sort-btn:hover:not(.active) { border-color: var(--text-muted); }
+
+/* PAGINATION */
+.pagination {
+    display: flex;
+    gap: 6px;
+    justify-content: center;
+    margin-top: 24px;
+    flex-wrap: wrap;
+}
+.page-btn {
+    padding: 7px 13px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    text-decoration: none;
+    color: var(--text-secondary);
+    background: var(--surface);
+    font-size: 13px;
+    transition: border-color 0.15s, color 0.15s;
+}
+.page-btn.active {
+    background: var(--text-primary);
+    color: #fff;
+    border-color: var(--text-primary);
+}
+.page-btn:hover:not(.active) { border-color: var(--text-muted); }
+.page-ellipsis {
+    padding: 7px 4px;
+    font-size: 13px;
+    color: var(--text-muted);
+    user-select: none;
+}
+
+/* FEATURED CITY CARDS */
+.neighborhood-grid--types {
+    margin-bottom: 16px;
+}
+.neighborhood-grid--featured {
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    margin-bottom: 12px;
+}
+.neighborhood-card--featured {
+    background: var(--surface);
+    border-color: var(--border);
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+}
+.neighborhood-card--featured h3 { font-size: 16px; }
+
+/* REGION HEADER SHADOW */
+.region-header {
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+}
+
+/* LEADERBOARD SHADOW */
+.leaderboard {
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+}
+
+/* NEIGHBORHOOD CARD HOVER */
+.neighborhood-card:hover {
+    border-color: var(--accent);
+    box-shadow: 0 2px 8px rgba(45,95,46,0.1);
+}
+
+/* INSPECTION TIMELINE COLLAPSE */
+.timeline-toggle { display: none; }
+.timeline-overflow { display: none; }
+.timeline-toggle:checked ~ .timeline-overflow { display: block; }
+.timeline-toggle-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 12px;
+    padding: 8px 16px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 13px;
+    color: var(--text-secondary);
+    background: var(--surface);
+    cursor: pointer;
+    user-select: none;
+    transition: border-color 0.15s, color 0.15s;
+}
+.timeline-toggle-label:hover { border-color: var(--text-muted); color: var(--text-primary); }
+.timeline-toggle-label .tl-hide { display: none; }
+.timeline-toggle:checked ~ .timeline-toggle-label .tl-show { display: none; }
+.timeline-toggle:checked ~ .timeline-toggle-label .tl-hide { display: inline; }

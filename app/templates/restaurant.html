@@ -15,7 +15,7 @@
     <!-- HEADER CARD -->
     <div class="header-card">
         <div class="restaurant-info">
-            <h1>{{ restaurant.name }}</h1>
+            <h1>{{ restaurant.display_name }}</h1>
             <div class="restaurant-meta">
                 {% if restaurant.address %}
                 <div class="meta-line">
@@ -51,17 +51,17 @@
             <div class="last-inspected">Last inspected: {{ latest_inspection.inspection_date|format_date }}</div>
             {% endif %}
         </div>
-        {{ render_score_ring(restaurant.latest_score, restaurant.score_tier) }}
+        {{ render_score_ring(restaurant.latest_score, restaurant.score_tier, restaurant.score_display_tier) }}
     </div>
 
     <!-- AI SUMMARY -->
-    <div class="summary-block">
+    <div class="summary-block summary-block--ai">
         {% if restaurant.ai_summary %}
             {% for para in restaurant.ai_summary.split('\n\n') %}
                 <p>{{ para }}</p>
             {% endfor %}
         {% else %}
-        <p>{{ restaurant.name }} is a {{ restaurant.cuisine_type or 'restaurant' }} located at
+        <p>{{ restaurant.display_name }} is a {{ restaurant.cuisine_type or 'restaurant' }} located at
         {{ restaurant.address }}, {{ restaurant.city }}, {{ restaurant.state }}.</p>
         <p>Health inspection records are available below. Check the inspection history and violations
         section for details on past inspections conducted by the local health department.</p>
@@ -76,15 +76,15 @@
         </div>
         <div class="stat-card">
             <div class="stat-value {% if total_critical > 0 %}red{% else %}green{% endif %}">{{ total_critical }}</div>
-            <div class="stat-name">Critical</div>
+            <div class="stat-name">Critical <span class="stat-sub">latest</span></div>
         </div>
         <div class="stat-card">
             <div class="stat-value {% if total_major > 0 %}yellow{% endif %}">{{ total_major }}</div>
-            <div class="stat-name">Major</div>
+            <div class="stat-name">Major <span class="stat-sub">latest</span></div>
         </div>
         <div class="stat-card">
             <div class="stat-value">{{ total_minor }}</div>
-            <div class="stat-name">Minor</div>
+            <div class="stat-name">Minor <span class="stat-sub">latest</span></div>
         </div>
     </div>
 
@@ -92,9 +92,21 @@
     {% if inspections %}
     <div class="timeline-section">
         <div class="section-title">Inspection History</div>
-        {% for inspection in inspections %}
+        {% for inspection in inspections[:5] %}
             {{ render_timeline_item(inspection) }}
         {% endfor %}
+        {% if inspections|length > 5 %}
+        <input type="checkbox" id="timeline-toggle" class="timeline-toggle">
+        <div class="timeline-overflow">
+            {% for inspection in inspections[5:] %}
+                {{ render_timeline_item(inspection) }}
+            {% endfor %}
+        </div>
+        <label for="timeline-toggle" class="timeline-toggle-label">
+            <span class="tl-show">Show all {{ inspections|length }} inspections</span>
+            <span class="tl-hide">Show less</span>
+        </label>
+        {% endif %}
     </div>
     {% endif %}
 
@@ -147,6 +159,21 @@
 
     <!-- NEARBY RESTAURANTS -->
     {{ render_nearby(nearby, restaurant.region) }}
+
+    <!-- INTERNAL LINKS -->
+    <div class="internal-links">
+        <a href="/{{ restaurant.region }}/{{ restaurant.city_slug }}/">
+            All facilities in {{ restaurant.city }}
+        </a>
+        {% if restaurant.cuisine_type and cuisine_slug %}
+        <a href="/{{ restaurant.region }}/{{ cuisine_slug }}/">
+            More {{ restaurant.cuisine_type }} in {{ restaurant.region.replace('-', ' ').title() }}
+        </a>
+        <a href="/{{ restaurant.region }}/{{ restaurant.city_slug }}/{{ cuisine_slug }}/">
+            {{ restaurant.cuisine_type }} in {{ restaurant.city }}
+        </a>
+        {% endif %}
+    </div>
 
 </div>
 {% endblock %}

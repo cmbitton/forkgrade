@@ -40,14 +40,7 @@ class Inspection(db.Model):
 
     @property
     def score_css_class(self):
-        tier = self.score_tier
-        if tier == 'low':
-            return 'pass'
-        elif tier == 'medium':
-            return 'warn'
-        elif tier == 'high':
-            return 'fail'
-        return ''
+        return self.score_tier or ''
 
     @property
     def violation_summary(self):

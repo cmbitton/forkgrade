@@ -1,9 +1,18 @@
 import math
+import re
 from flask import render_template, current_app, abort
 from sqlalchemy.orm import selectinload
 from app.db import db
 from app.models.restaurant import Restaurant
 from app.models.inspection import Inspection
+
+
+def _cuisine_slug(label: str) -> str:
+    s = label.lower()
+    s = re.sub(r"[/&'\u2019,]+", '-', s)
+    s = re.sub(r'\s+', '-', s)
+    s = re.sub(r'[^a-z0-9-]', '', s)
+    return re.sub(r'-+', '-', s).strip('-')
 
 
 def get_nearby_restaurants(restaurant, limit=3):
@@ -65,19 +74,19 @@ def render_restaurant(restaurant):
     latest_inspection = inspections[0] if inspections else None
     latest_violations = latest_inspection.violations if latest_inspection else []
 
-    # Aggregate stats across all inspections
     total_inspections = len(inspections)
+
+    # Violation counts from latest inspection only
     total_critical = 0
     total_major = 0
     total_minor = 0
-    for insp in inspections:
-        for v in insp.violations:
-            if v.severity == 'critical':
-                total_critical += 1
-            elif v.severity == 'major':
-                total_major += 1
-            else:
-                total_minor += 1
+    for v in latest_violations:
+        if v.severity == 'critical':
+            total_critical += 1
+        elif v.severity == 'major':
+            total_major += 1
+        else:
+            total_minor += 1
 
     nearby = get_nearby_restaurants(restaurant)
 
@@ -143,9 +152,11 @@ def render_restaurant(restaurant):
     else:
         last_date_str = 'N/A'
 
+    score_str = f" Current score: {latest_inspection.score}." if latest_inspection and latest_inspection.score is not None else ''
     description = (
-        f"View health inspection scores and violation history for {restaurant.name} "
-        f"in {restaurant.city}, {restaurant.state}. Last inspected {last_date_str}."
+        f"View the full health inspection history for {restaurant.display_name} "
+        f"in {restaurant.city}, {restaurant.state}. Last inspected {last_date_str}.{score_str} "
+        f"{total_inspections} inspection{'s' if total_inspections != 1 else ''} on record."
     )
 
     canonical_url = f"{base_url}/{restaurant.region}/{restaurant.slug}/"
@@ -154,12 +165,14 @@ def render_restaurant(restaurant):
         {'name': 'Home', 'url': '/'},
         {'name': restaurant.region.replace('-', ' ').title(), 'url': f'/{restaurant.region}/'},
         {'name': restaurant.city or restaurant.region, 'url': f'/{restaurant.region}/{restaurant.city_slug}/'},
-        {'name': restaurant.name}
+        {'name': restaurant.display_name}
     ]
+
+    cuisine_slug = _cuisine_slug(restaurant.cuisine_type) if restaurant.cuisine_type else None
 
     return render_template(
         'restaurant.html',
-        title=f'{restaurant.name} — Health Inspection History | {site_name}',
+        title=f'{restaurant.display_name} Health Inspection Score & History — {restaurant.city}, {restaurant.state} | {site_name}',
         description=description,
         canonical_url=canonical_url,
         restaurant=restaurant,
@@ -172,5 +185,6 @@ def render_restaurant(restaurant):
         total_minor=total_minor,
         nearby=nearby,
         json_ld=json_ld,
-        breadcrumbs=breadcrumbs
+        breadcrumbs=breadcrumbs,
+        cuisine_slug=cuisine_slug,
     )

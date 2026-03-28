@@ -1,9 +1,18 @@
 {% extends 'base.html' %}
 {% from 'components/breadcrumb.html' import render_breadcrumb %}
+{% from 'components/pagination.html' import render_pagination %}
 
 {% block breadcrumb %}
 {{ render_breadcrumb(breadcrumbs) }}
 {% endblock %}
+
+{% set is_cuisine = is_cuisine if is_cuisine is defined else false %}
+{% set page = page if page is defined else 1 %}
+{% set per_page = per_page if per_page is defined else 25 %}
+{% set sort = sort if sort is defined else 'date' %}
+{% set total_pages = total_pages if total_pages is defined else 1 %}
+{% set base_path = base_path if base_path is defined else '' %}
+{% set total = total if (total is defined and total is not none) else rows|length %}
 
 {% block content %}
 <div class="container">
@@ -12,7 +21,7 @@
         <h1>{{ city_name }} Health Inspections</h1>
         <div class="region-stats">
             <div class="region-stat">
-                <strong>{{ rows|length }}</strong>
+                <strong>{{ total }}</strong>
                 Locations
             </div>
             <div class="region-stat">
@@ -22,47 +31,82 @@
         </div>
     </div>
 
-    {% if rows %}
-    <div class="leaderboard">
-        <div class="leaderboard-header">
-            <div>#</div>
-            <div>Facility</div>
-            <div>Score</div>
-            <div>Risk Tier</div>
-            <div>Last Inspected</div>
+    {# Wrapper lets CSS reorder Browse-by-Type vs restaurant table on mobile #}
+    <div class="city-page-body">
+
+        {% if city_cuisine_types %}
+        <div class="browse-types-section">
+            <div class="section-header" style="margin-bottom: 12px;">
+                <h2>Browse by Type</h2>
+            </div>
+            <div class="neighborhood-grid neighborhood-grid--types">
+                {% for ct in city_cuisine_types|sort(attribute='label') %}
+                <a href="/{{ region }}/{{ city_slug }}/{{ ct.slug }}/" class="neighborhood-card">
+                    <h3>{{ ct.label }}</h3>
+                    <p>{{ ct.count }} location{{ 's' if ct.count != 1 else '' }}</p>
+                </a>
+                {% endfor %}
+            </div>
         </div>
-        {% for r, insp in rows %}
-        {% set tier = insp.score_tier if insp else none %}
-        <a href="/{{ region }}/{{ r.slug }}/" class="leaderboard-row">
-            <div class="rank-num">{{ loop.index }}</div>
-            <div>
-                <div class="lb-name">{{ r.name }}</div>
-                <div class="lb-address">{{ r.address or '' }}</div>
+        {% endif %}
+
+        {% if rows %}
+        <div class="restaurant-list-section">
+            {% if base_path %}
+            <div class="sort-bar">
+                <span class="sort-label">Sort by:</span>
+                <a href="{{ base_path }}?sort=date" class="sort-btn{% if sort == 'date' or not sort %} active{% endif %}">Last Inspected</a>
+                <a href="{{ base_path }}?sort=score" class="sort-btn{% if sort == 'score' %} active{% endif %}">Score</a>
+                <a href="{{ base_path }}?sort=name" class="sort-btn{% if sort == 'name' %} active{% endif %}">Name</a>
             </div>
-            <div class="lb-score"
-                {% if tier %}style="color: var(--tier-{{ tier }})"{% endif %}>
-                {% if insp and insp.score is not none %}{{ insp.score }}{% else %}—{% endif %}
+            {% endif %}
+
+            <div class="leaderboard">
+                <div class="leaderboard-header">
+                    <div>#</div>
+                    <div>Name</div>
+                    <div>Score</div>
+                    <div>Risk Tier</div>
+                    <div>Last Inspected</div>
+                </div>
+                {% for r, insp in rows %}
+                {% set tier = insp.score_tier if insp else none %}
+                <a href="/{{ region }}/{{ r.slug }}/" class="leaderboard-row">
+                    <div class="rank-num">{{ loop.index + (page - 1) * per_page }}</div>
+                    <div>
+                        <div class="lb-name">{{ r.display_name }}</div>
+                        <div class="lb-address">{{ r.address or '' }}</div>
+                    </div>
+                    <div class="lb-score"
+                        {% if tier %}style="color: var(--tier-{{ tier }})"{% endif %}>
+                        {% if insp and insp.score is not none %}{{ insp.score }}{% else %}—{% endif %}
+                    </div>
+                    <div>
+                        {% if tier %}
+                        <span class="tier-badge tier-{{ tier }}">
+                            {% if tier == 'low' %}Low Risk
+                            {% elif tier == 'medium' %}Moderate Risk
+                            {% else %}High Risk{% endif %}
+                        </span>
+                        {% else %}
+                        <span style="color: var(--text-muted); font-size: 13px;">No data</span>
+                        {% endif %}
+                    </div>
+                    <div style="font-size: 13px; color: var(--text-muted); font-family: 'DM Mono', monospace;">
+                        {% if insp %}{{ insp.inspection_date|format_date }}{% else %}—{% endif %}
+                    </div>
+                </a>
+                {% endfor %}
             </div>
-            <div>
-                {% if tier %}
-                <span class="tier-badge tier-{{ tier }}">
-                    {% if tier == 'low' %}Low Risk
-                    {% elif tier == 'medium' %}Moderate Risk
-                    {% else %}High Risk{% endif %}
-                </span>
-                {% else %}
-                <span style="color: var(--text-muted); font-size: 13px;">No data</span>
-                {% endif %}
-            </div>
-            <div style="font-size: 13px; color: var(--text-muted); font-family: 'DM Mono', monospace;">
-                {% if insp %}{{ insp.inspection_date|format_date }}{% else %}—{% endif %}
-            </div>
-        </a>
-        {% endfor %}
-    </div>
-    {% else %}
-    <p style="color: var(--text-secondary);">No locations found.</p>
-    {% endif %}
+
+            {{ render_pagination(page, total_pages, base_path, sort=sort) }}
+        </div>
+
+        {% else %}
+        <p style="color: var(--text-secondary);">No locations found.</p>
+        {% endif %}
+
+    </div>{# /city-page-body #}
 
 </div>
 {% endblock %}

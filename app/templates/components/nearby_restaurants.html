@@ -5,7 +5,7 @@
     <div class="nearby-grid">
         {% for r in nearby %}
         <a href="/{{ region }}/{{ r.slug }}/" class="nearby-card">
-            <div class="nearby-name">{{ r.name }}</div>
+            <div class="nearby-name">{{ r.display_name }}</div>
             <div class="nearby-address">{{ r.address or r.city }}</div>
             <div class="nearby-score"
                 {% if r.score_tier %}style="color: var(--tier-{{ r.score_tier }})"{% endif %}>

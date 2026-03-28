@@ -1,6 +1,7 @@
-{% macro render_score_ring(score, tier) %}
+{% macro render_score_ring(score, tier, ring_tier=none) %}
+{% set display_tier = ring_tier if ring_tier is not none else tier %}
 <div class="score-block">
-    <div class="score-ring{% if tier == 'medium' %} tier-medium{% elif tier == 'high' %} tier-high{% endif %}">
+    <div class="score-ring{% if display_tier == 'medium' %} tier-medium{% elif display_tier == 'high' %} tier-high{% endif %}">
         <div class="score-number">{{ score if score is not none else '—' }}</div>
         <div class="score-label">Score</div>
     </div>

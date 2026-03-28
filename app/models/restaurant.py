@@ -2,6 +2,49 @@ import re
 from app.db import db
 
 
+_SUFFIX_RE = re.compile(
+    r',?\s+(?:LLC\.?|INC\.?|CORP\.?|L\.L\.C\.)$',
+    re.IGNORECASE
+)
+
+# Strip legal entity name before D/B/A — keep only the trade name after it
+_DBA_RE = re.compile(r'^.+\bD[/.]?B[/.]?A\b\.?\s+', re.IGNORECASE)
+
+_SMALL_WORDS = frozenset([
+    'a', 'an', 'the', 'and', 'but', 'or', 'nor', 'for',
+    'of', 'on', 'in', 'at', 'to', 'by', 'up', 'as',
+])
+
+
+def _title_word(word: str) -> str:
+    """Title-case one word without capitalizing after an apostrophe."""
+    result = []
+    cap_next = True
+    for ch in word:
+        if ch == "'":
+            result.append(ch)
+            cap_next = False
+        elif ch.isalpha():
+            result.append(ch.upper() if cap_next else ch.lower())
+            cap_next = False
+        else:
+            result.append(ch)
+            cap_next = True  # capitalize after hyphens in compound words
+    return ''.join(result)
+
+
+def _smart_title(name: str) -> str:
+    """Title-case with small-word lowercasing and no capitalize-after-apostrophe."""
+    words = name.split()
+    out = []
+    for i, word in enumerate(words):
+        if i > 0 and word.lower() in _SMALL_WORDS:
+            out.append(word.lower())
+        else:
+            out.append(_title_word(word))
+    return ' '.join(out)
+
+
 class Restaurant(db.Model):
     __tablename__ = 'restaurants'
 
@@ -51,6 +94,25 @@ class Restaurant(db.Model):
         if insp is None:
             return None
         return insp.score_tier
+
+    @property
+    def display_name(self):
+        """Name cleaned: D/B/A entity stripped, legal suffixes removed, title-cased."""
+        name = _DBA_RE.sub('', self.name).strip()
+        name = _SUFFIX_RE.sub('', name).strip().rstrip(',').strip()
+        return _smart_title(name)
+
+    @property
+    def score_display_tier(self):
+        """Visual tier based on normalized 0-100 score: low ≥70, medium ≥50, high <50."""
+        score = self.latest_score
+        if score is None:
+            return None
+        if score >= 70:
+            return 'low'
+        elif score >= 50:
+            return 'medium'
+        return 'high'
 
     @property
     def city_slug(self):

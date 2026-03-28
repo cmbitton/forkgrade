@@ -1,0 +1,35 @@
+{% macro render_pagination(page, total_pages, base_path, sort=none) %}
+{% if total_pages > 1 %}
+{% set qs_sort = ('?sort=' ~ sort ~ '&') if sort else '?' %}
+
+{# Build the page numbers to show: first, last, current ±2, with gaps #}
+{% set ns = namespace(pages=[], prev=-1) %}
+{% for p in range(1, total_pages + 1) %}
+    {% if p == 1 or p == total_pages or (p >= page - 2 and p <= page + 2) %}
+        {% if ns.prev != -1 and p - ns.prev > 1 %}
+            {% set ns.pages = ns.pages + ['...'] %}
+        {% endif %}
+        {% set ns.pages = ns.pages + [p] %}
+        {% set ns.prev = p %}
+    {% endif %}
+{% endfor %}
+
+<div class="pagination">
+    {% if page > 1 %}
+    <a href="{{ base_path }}{{ qs_sort }}page={{ page - 1 }}" class="page-btn">← Prev</a>
+    {% endif %}
+
+    {% for p in ns.pages %}
+        {% if p == '...' %}
+        <span class="page-ellipsis">…</span>
+        {% else %}
+        <a href="{{ base_path }}{{ qs_sort }}page={{ p }}" class="page-btn{% if p == page %} active{% endif %}">{{ p }}</a>
+        {% endif %}
+    {% endfor %}
+
+    {% if page < total_pages %}
+    <a href="{{ base_path }}{{ qs_sort }}page={{ page + 1 }}" class="page-btn">Next →</a>
+    {% endif %}
+</div>
+{% endif %}
+{% endmacro %}
