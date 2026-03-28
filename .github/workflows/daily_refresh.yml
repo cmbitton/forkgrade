@@ -2,7 +2,7 @@ name: Daily Data Refresh
 
 on:
   schedule:
-    - cron: '0 8 * * *'   # 08:00 UTC = 4 AM ET
+    - cron: '0 11 * * *'  # 11:00 UTC = 6 AM EST / 7 AM EDT
   workflow_dispatch:        # allow manual runs
 
 jobs:
@@ -20,10 +20,16 @@ jobs:
           python-version: '3.12'
           cache: 'pip'
 
+      - name: Install flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      # ── RI: update locations.json ──────────────────────────────────────────
+      # ── RI: update locations.json in the runner, commit it back ───────────
+      # refresh.py geocodes new locations (needs Google Maps key) and writes
+      # data/locations.json. The updated file is committed so the next deploy
+      # picks up any new RI locations.
       - name: RI — Refresh locations.json
         env:
           GOOGLE_MAPS_KEY: ${{ secrets.GOOGLE_MAPS_KEY }}
@@ -41,24 +47,20 @@ jobs:
             git push
           fi
 
-      # ── RI: sync new inspections into Postgres ─────────────────────────────
+      # ── Run DB scripts inside the Fly container ────────────────────────────
+      # DATABASE_URL, SECRET_KEY, and GEMINI_API_KEY are already set as Fly
+      # secrets and are available inside the container automatically.
       - name: RI — Sync database
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          SECRET_KEY:   ${{ secrets.SECRET_KEY }}
-        run: python3 scripts/sync_db.py
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: fly ssh console -a forkgrade -C "python3 scripts/sync_db.py"
 
-      # ── NYC: fetch last 3 days and upsert ─────────────────────────────────
       - name: NYC — Daily import (last 3 days)
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          SECRET_KEY:   ${{ secrets.SECRET_KEY }}
-        run: python3 scripts/import_nyc.py --days=3
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: fly ssh console -a forkgrade -C "python3 scripts/import_nyc.py --days=3"
 
-      # ── AI summaries for new/missing restaurants ──────────────────────────
-      - name: AI — Generate missing summaries (cap 30/day)
+      - name: AI — Generate missing summaries
         env:
-          DATABASE_URL:   ${{ secrets.DATABASE_URL }}
-          SECRET_KEY:     ${{ secrets.SECRET_KEY }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: python3 scripts/generate_summaries.py --limit 30
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: fly ssh console -a forkgrade -C "python3 scripts/generate_summaries.py --limit 100"
