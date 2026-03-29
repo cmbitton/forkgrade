@@ -108,13 +108,13 @@ class Restaurant(db.Model):
 
     @property
     def score_display_tier(self):
-        """Visual tier based on normalized 0-100 score: low ≥70, medium ≥50, high <50."""
+        """Visual tier based on normalized 0-100 score: low ≥75, medium ≥55, high <55."""
         score = self.latest_score
         if score is None:
             return None
-        if score >= 70:
+        if score >= 75:
             return 'low'
-        elif score >= 50:
+        elif score >= 55:
             return 'medium'
         return 'high'
 

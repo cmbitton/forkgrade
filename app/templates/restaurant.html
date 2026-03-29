@@ -157,22 +157,7 @@
     </div>
     {% endif %}
 
-    <!-- MAP CTA (RI only) -->
-    {% if restaurant.region == 'ri' %}
-    {% if restaurant.latitude and restaurant.longitude %}
-    <a href="https://inspectri.com/?lat={{ restaurant.latitude }}&lng={{ restaurant.longitude }}&zoom=17" class="map-cta" target="_blank" rel="noopener">
-    {% else %}
-    <a href="https://inspectri.com/" class="map-cta" target="_blank" rel="noopener">
-    {% endif %}
-        <div class="map-cta-text">
-            View on the interactive map
-            <span>See nearby restaurants and compare scores</span>
-        </div>
-        <div class="map-cta-arrow">→</div>
-    </a>
-    {% endif %}
-
-    <!-- NEARBY RESTAURANTS -->
+<!-- NEARBY RESTAURANTS -->
     {{ render_nearby(nearby, restaurant.region) }}
 
     <!-- INTERNAL LINKS -->

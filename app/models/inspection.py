@@ -32,14 +32,13 @@ class Inspection(db.Model):
 
     @property
     def score_tier(self):
-        # Uses raw risk_score to match InspectRI's violationLabel thresholds:
-        # <= 2 → low, <= 9 → medium, > 9 → high
-        rs = self.risk_score
-        if rs is None:
+        # Score-based thresholds: >= 75 = low, 55–74 = medium, < 55 = high
+        s = self.score
+        if s is None:
             return None
-        if rs <= 2:
+        if s >= 75:
             return 'low'
-        elif rs <= 9:
+        elif s >= 55:
             return 'medium'
         else:
             return 'high'
