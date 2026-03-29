@@ -49,9 +49,14 @@ def create_app():
     )
     limiter.init_app(app)
 
+    _GOOD_BOTS = ('Googlebot', 'bingbot', 'Slurp', 'DuckDuckBot')
+
     @limiter.request_filter
-    def _exempt_static():
-        return request.path.startswith('/static/')
+    def _exempt_rate_limit():
+        if request.path.startswith('/static/'):
+            return True
+        ua = request.headers.get('User-Agent', '')
+        return any(bot in ua for bot in _GOOD_BOTS)
 
     # -- Per-request performance logging --
     @app.before_request
