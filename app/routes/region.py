@@ -107,7 +107,12 @@ def _get_cuisine_types(region):
     """Return list of {slug, label, count} dicts for cuisine types in region.
 
     Types with fewer than 20 locations are excluded to keep Browse by Type clean.
+    Cached 1 h — cuisine type lists change only when new data is imported.
     """
+    cache_key = f'cuisine_types_{region}'
+    hit = cache.get(cache_key)
+    if hit is not None:
+        return hit
     rows = (
         db.session.query(Restaurant.cuisine_type, func.count(Restaurant.id))
         .join(Inspection, Restaurant.id == Inspection.restaurant_id)
@@ -116,10 +121,12 @@ def _get_cuisine_types(region):
         .having(func.count(Restaurant.id) >= 20)
         .all()
     )
-    return [
+    result = [
         {'slug': _cuisine_slug(label), 'label': label, 'count': cnt}
         for label, cnt in rows if label
     ]
+    cache.set(cache_key, result, timeout=3600)
+    return result
 
 
 def _cuisine_rows(region, cuisine_type, city_name=None, sort='date', page=1, per_page=25):
@@ -127,7 +134,13 @@ def _cuisine_rows(region, cuisine_type, city_name=None, sort='date', page=1, per
 
     Returns (rows, total_count).
     sort: 'date' (newest first), 'score' (best first), 'name' (A-Z)
+    Cached 5 min per unique (region, cuisine, city, sort, page) combination.
     """
+    cache_key = f'cuisine_rows_{region}_{cuisine_type}_{city_name or ""}_{sort}_{page}'
+    hit = cache.get(cache_key)
+    if hit is not None:
+        return hit
+
     sq = _latest_inspection_subquery()
     q = (
         db.session.query(Restaurant, Inspection)
@@ -162,7 +175,9 @@ def _cuisine_rows(region, cuisine_type, city_name=None, sort='date', page=1, per
 
     total = q.count()
     rows = q.offset((page - 1) * per_page).limit(per_page).all()
-    return rows, total
+    result = (rows, total)
+    cache.set(cache_key, result, timeout=300)
+    return result
 
 
 def render_cuisine(region, cuisine_slug_str, cuisine_label, rows,
@@ -227,19 +242,23 @@ def render_neighborhood(region, city_slug_str, city_name, restaurants_with_score
     base_url       = current_app.config['BASE_URL']
     region_display = get_region_display(region)
 
-    # Cuisine types present in this city for sub-navigation
-    city_cuisine_rows = (
-        db.session.query(Restaurant.cuisine_type, func.count(Restaurant.id))
-        .join(Inspection, Restaurant.id == Inspection.restaurant_id)
-        .filter(Restaurant.region == region, Restaurant.city == city_name,
-                Restaurant.cuisine_type.isnot(None))
-        .group_by(Restaurant.cuisine_type)
-        .all()
-    )
-    city_cuisine_types = [
-        {'slug': _cuisine_slug(label), 'label': label, 'count': cnt}
-        for label, cnt in city_cuisine_rows if label
-    ]
+    # Cuisine types present in this city for sub-navigation — cached 1 h
+    ct_cache_key = f'city_cuisine_types_{region}_{city_slug_str}'
+    city_cuisine_types = cache.get(ct_cache_key)
+    if city_cuisine_types is None:
+        city_cuisine_rows = (
+            db.session.query(Restaurant.cuisine_type, func.count(Restaurant.id))
+            .join(Inspection, Restaurant.id == Inspection.restaurant_id)
+            .filter(Restaurant.region == region, Restaurant.city == city_name,
+                    Restaurant.cuisine_type.isnot(None))
+            .group_by(Restaurant.cuisine_type)
+            .all()
+        )
+        city_cuisine_types = [
+            {'slug': _cuisine_slug(label), 'label': label, 'count': cnt}
+            for label, cnt in city_cuisine_rows if label
+        ]
+        cache.set(ct_cache_key, city_cuisine_types, timeout=3600)
 
     breadcrumbs = [
         {'name': 'Home',          'url': '/'},
@@ -276,20 +295,20 @@ def render_neighborhood(region, city_slug_str, city_name, restaurants_with_score
 def region_index(region):
     q = request.args.get('q', '').strip()
 
-    count = (
-        Restaurant.query
-        .filter_by(region=region)
-        .filter(Restaurant.inspections.any())
-        .count()
-    )
-    if count == 0:
-        abort(404)
-
     site_name      = current_app.config['SITE_NAME']
     base_url       = current_app.config['BASE_URL']
     region_display = get_region_display(region)
 
+    cache_key = f'region_index_{region}'
+
     if q:
+        # Use cached count if warm; otherwise a fast index-only count
+        cached_for_count = cache.get(cache_key)
+        count = cached_for_count[0] if cached_for_count else (
+            Restaurant.query.filter_by(region=region).count()
+        )
+        if count == 0:
+            abort(404)
         search_results = (
             Restaurant.query
             .filter(
@@ -319,13 +338,20 @@ def region_index(region):
             bottom_restaurants = [],
             cuisine_types      = [],
         )
-
-    cache_key = f'region_index_{region}'
     cached = cache.get(cache_key)
     if cached:
-        (total_inspections, neighborhoods, top_cities,
+        (count, total_inspections, neighborhoods, top_cities,
          recent_inspections, bottom_restaurants, cuisine_types) = cached
     else:
+        count = (
+            Restaurant.query
+            .filter_by(region=region)
+            .filter(Restaurant.inspections.any())
+            .count()
+        )
+        if count == 0:
+            abort(404)
+
         total_inspections = (
             db.session.query(func.count(Inspection.id))
             .join(Restaurant)
@@ -366,11 +392,9 @@ def region_index(region):
         cuisine_types = _get_cuisine_types(region)
 
         cache.set(cache_key, (
-            total_inspections, neighborhoods, top_cities,
+            count, total_inspections, neighborhoods, top_cities,
             recent_inspections, bottom_restaurants, cuisine_types,
-        ), timeout=600)
-
-    top_restaurants = []
+        ), timeout=300)
 
     return render_template(
         'region.html',
@@ -386,7 +410,7 @@ def region_index(region):
         neighborhoods      = neighborhoods,
         top_cities         = top_cities,
         recent_inspections = recent_inspections,
-        top_restaurants    = top_restaurants,
+        top_restaurants    = [],
         bottom_restaurants = bottom_restaurants,
         cuisine_types      = cuisine_types,
     )
