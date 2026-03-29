@@ -83,7 +83,7 @@
 
     {% if worst_scores %}
     <div class="section-header worst-header">
-        <h2>Worst in {{ worst_region | region_display }}</h2>
+        <h2>Worst in {{ worst_region | region_display }} <span class="section-sub">last 30 days</span></h2>
         <div class="region-pills" data-feed="{{ feed }}">
             {% for r in supported_regions %}
             <a href="/?worst={{ r.slug }}{% if feed != 'restaurants' %}&feed={{ feed }}{% endif %}"

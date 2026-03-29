@@ -1036,6 +1036,12 @@ nav {
     color: var(--text-muted);
     margin-top: 4px;
 }
+.section-sub {
+    font-size: 13px;
+    font-weight: 400;
+    color: var(--text-muted);
+    margin-left: 6px;
+}
 
 /* FEED TOGGLE (Restaurants | All Facilities) */
 .feed-toggle {
