@@ -1,6 +1,7 @@
 {% extends 'base.html' %}
 {% from 'components/breadcrumb.html' import render_breadcrumb %}
 {% from 'components/pagination.html' import render_pagination %}
+{% from 'components/restaurant_row.html' import render_restaurant_row %}
 
 {% block breadcrumb %}
 {{ render_breadcrumb(breadcrumbs) }}
@@ -56,8 +57,8 @@
             </div>
             {% endif %}
 
-            <div class="leaderboard">
-                <div class="leaderboard-header">
+            <div class="rl-list rl-list--ranked">
+                <div class="rl-header">
                     <div>#</div>
                     <div>Name</div>
                     <div>Score</div>
@@ -65,33 +66,7 @@
                     <div>Last Inspected</div>
                 </div>
                 {% for r, insp in rows %}
-                {% set tier = insp.score_tier if insp else none %}
-                <a href="/{{ region }}/{{ r.slug }}/" class="leaderboard-row">
-                    <div class="rank-num">{{ loop.index + (page - 1) * per_page }}</div>
-                    <div>
-                        <div class="lb-name">{{ r.display_name }}</div>
-                        <div class="lb-address">{{ r.address or '' }}</div>
-                    </div>
-                    <div class="lb-score"
-                        {% if tier %}style="color: var(--tier-{{ tier }})"{% endif %}>
-                        {% if insp and insp.score is not none %}{{ insp.score }}{% else %}—{% endif %}
-                        <div class="lb-mobile-date">{% if insp %}{{ insp.inspection_date|format_date }}{% endif %}</div>
-                    </div>
-                    <div>
-                        {% if tier %}
-                        <span class="tier-badge tier-{{ tier }}">
-                            {% if tier == 'low' %}Low Risk
-                            {% elif tier == 'medium' %}Moderate Risk
-                            {% else %}High Risk{% endif %}
-                        </span>
-                        {% else %}
-                        <span style="color: var(--text-muted); font-size: 13px;">No data</span>
-                        {% endif %}
-                    </div>
-                    <div style="font-size: 13px; color: var(--text-muted); font-family: 'DM Mono', monospace;">
-                        {% if insp %}{{ insp.inspection_date|format_date }}{% else %}—{% endif %}
-                    </div>
-                </a>
+                    {{ render_restaurant_row(r, inspection=insp, rank=loop.index + (page - 1) * per_page) }}
                 {% endfor %}
             </div>
 

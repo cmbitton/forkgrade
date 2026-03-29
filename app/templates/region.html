@@ -1,5 +1,6 @@
 {% extends 'base.html' %}
 {% from 'components/breadcrumb.html' import render_breadcrumb %}
+{% from 'components/restaurant_row.html' import render_restaurant_row %}
 
 {% block breadcrumb %}
 {{ render_breadcrumb([
@@ -50,16 +51,9 @@
         </h2>
     </div>
     {% if search_results %}
-    <div class="feed-list" style="margin-bottom: 32px;">
+    <div class="rl-list" style="margin-bottom: 32px;">
         {% for r in search_results %}
-        <a href="/{{ r.region }}/{{ r.slug }}/" class="feed-item">
-            <div class="feed-name">{{ r.display_name }}</div>
-            <div class="feed-meta">{{ r.city }}, {{ r.state }}</div>
-            <div class="feed-score"
-                {% if r.score_tier %}style="color: var(--tier-{{ r.score_tier }})"{% endif %}>
-                {% if r.latest_score is not none %}{{ r.latest_score }}{% else %}—{% endif %}
-            </div>
-        </a>
+            {{ render_restaurant_row(r) }}
         {% endfor %}
     </div>
     {% else %}
@@ -115,16 +109,9 @@
     <div class="section-header">
         <h2>Lowest Scoring Restaurants</h2>
     </div>
-    <div class="feed-list" style="margin-bottom: 32px;">
+    <div class="rl-list rl-list--warning" style="margin-bottom: 32px;">
         {% for r, insp in bottom_restaurants %}
-        <a href="/{{ r.region }}/{{ r.slug }}/" class="feed-item">
-            <div class="feed-name">{{ r.display_name }}</div>
-            <div class="feed-meta">{{ r.city }}, {{ r.state }}</div>
-            <div class="feed-score"
-                {% if insp.score_tier %}style="color: var(--tier-{{ insp.score_tier }})"{% endif %}>
-                {% if insp.score is not none %}{{ insp.score }}{% else %}—{% endif %}
-            </div>
-        </a>
+            {{ render_restaurant_row(r, inspection=insp) }}
         {% endfor %}
     </div>
     {% endif %}
@@ -133,16 +120,9 @@
     <div class="section-header">
         <h2>Recent Inspections</h2>
     </div>
-    <div class="feed-list">
+    <div class="rl-list">
         {% for inspection, restaurant in recent_inspections %}
-        <a href="/{{ restaurant.region }}/{{ restaurant.slug }}/" class="feed-item">
-            <div class="feed-name">{{ restaurant.display_name }}</div>
-            <div class="feed-meta">{{ restaurant.city }}, {{ restaurant.state }} · {{ inspection.inspection_date|format_date }}</div>
-            <div class="feed-score"
-                {% if inspection.score_tier %}style="color: var(--tier-{{ inspection.score_tier }})"{% endif %}>
-                {% if inspection.score is not none %}{{ inspection.score }}{% else %}—{% endif %}
-            </div>
-        </a>
+            {{ render_restaurant_row(restaurant, inspection=inspection) }}
         {% endfor %}
     </div>
     {% endif %}

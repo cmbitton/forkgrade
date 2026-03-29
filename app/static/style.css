@@ -681,6 +681,88 @@ nav {
     font-size: 15px;
 }
 
+/* ===================== RESTAURANT ROW (unified component) ===================== */
+.rl-list {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+    border-radius: 12px;
+    overflow: hidden;
+    margin-bottom: 32px;
+}
+.rl-list--warning {
+    background: #FFF5F5;
+    border-color: #F5C6C6;
+}
+.rl-list--warning .rl-row:hover { background: #FFF0F0; }
+.rl-header {
+    display: grid;
+    grid-template-columns: 40px 1fr 80px 120px 120px;
+    gap: 12px;
+    padding: 10px 20px;
+    background: var(--bg);
+    font-size: 11px;
+    font-family: 'DM Mono', monospace;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid var(--border);
+}
+/* Default row: 4-column, rank hidden (used on feed/home/region lists) */
+.rl-row {
+    display: grid;
+    grid-template-columns: 1fr 80px 120px 120px;
+    gap: 12px;
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border);
+    align-items: center;
+    text-decoration: none;
+    color: inherit;
+    transition: background 0.1s;
+}
+.rl-row:last-child { border-bottom: none; }
+.rl-row:hover { background: var(--bg); }
+.rl-list--warning .rl-row:last-child { border-bottom: none; }
+.rl-rank { display: none; }
+/* Ranked variant: 5-column, rank shown */
+.rl-list--ranked .rl-row {
+    grid-template-columns: 40px 1fr 80px 120px 120px;
+}
+.rl-list--ranked .rl-rank {
+    display: block;
+    font-family: 'DM Mono', monospace;
+    font-size: 13px;
+    color: var(--text-muted);
+}
+.rl-name-col { min-width: 0; }
+.rl-name {
+    font-weight: 600;
+    font-size: 14px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.rl-address {
+    font-size: 12px;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.rl-mobile-sub { display: none; }
+.rl-score {
+    font-family: 'DM Mono', monospace;
+    font-weight: 600;
+    font-size: 15px;
+}
+.rl-tier { }
+.rl-date {
+    font-size: 13px;
+    color: var(--text-muted);
+    font-family: 'DM Mono', monospace;
+}
+.rl-empty { color: var(--text-muted); font-size: 13px; }
+
 /* ===================== ERROR PAGES ===================== */
 .error-page {
     max-width: 900px;
@@ -771,6 +853,35 @@ nav {
     }
     .region-card h3 { font-size: 16px; margin-bottom: 2px; }
     #regions { margin-bottom: 4px; margin-top: 0; }
+    /* rl-row mobile: 2-col — name+sub left, score right */
+    .rl-header { display: none; }
+    /* specificity 0,2,0 ties with .rl-list--ranked .rl-row; later position wins */
+    .rl-list .rl-row {
+        grid-template-columns: 1fr auto;
+        gap: 8px;
+        padding: 12px 16px;
+    }
+    .rl-rank { display: none; }
+    .rl-tier { display: none; }
+    .rl-date { display: none; }
+    .rl-address { display: none; }
+    .rl-mobile-sub {
+        display: block;
+        font-size: 12px;
+        color: var(--text-muted);
+        font-family: 'DM Mono', monospace;
+        margin-top: 2px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .rl-score {
+        font-size: 16px;
+        font-weight: 700;
+        align-self: center;
+        text-align: right;
+    }
+    .rl-name-col { min-width: 0; }
 }
 
 /* ===================== MOBILE: BROWSE BY TYPE — HORIZONTAL SCROLL ===================== */
@@ -949,6 +1060,39 @@ nav {
     color: #fff;
 }
 .feed-toggle-btn:hover:not(.active) { background: var(--bg); }
+
+/* WORST-IN SECTION */
+.worst-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 28px;
+}
+.region-pills {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+.region-pill {
+    padding: 5px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    text-decoration: none;
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    background: var(--surface);
+    transition: border-color 0.15s, color 0.15s, background 0.15s;
+    cursor: pointer;
+}
+.region-pill:hover { border-color: var(--accent); color: var(--accent); }
+.region-pill.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+}
 
 /* FEED CITY LINK (inline city link in meta) */
 .feed-city-link {

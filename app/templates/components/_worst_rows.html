@@ -1,0 +1,4 @@
+{% from 'components/restaurant_row.html' import render_restaurant_row %}
+{% for inspection, restaurant in rows %}
+    {{ render_restaurant_row(restaurant, inspection=inspection) }}
+{% endfor %}

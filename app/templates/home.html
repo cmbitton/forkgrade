@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% from 'components/restaurant_row.html' import render_restaurant_row %}
 
 {% block content %}
 <div class="hero">
@@ -37,16 +38,9 @@
         </h2>
     </div>
     {% if search_results %}
-    <div class="feed-list" style="margin-bottom: 32px;">
+    <div class="rl-list" style="margin-bottom: 32px;">
         {% for r in search_results %}
-        <a href="/{{ r.region }}/{{ r.slug }}/" class="feed-item">
-            <div class="feed-name">{{ r.display_name }}</div>
-            <div class="feed-meta">{{ r.city }}, {{ r.state }} · {{ r.region | region_display }}</div>
-            <div class="feed-score"
-                {% if r.score_tier %}style="color: var(--tier-{{ r.score_tier }})"{% endif %}>
-                {% if r.latest_score is not none %}{{ r.latest_score }}{% else %}—{% endif %}
-            </div>
-        </a>
+            {{ render_restaurant_row(r) }}
         {% endfor %}
     </div>
     {% else %}
@@ -80,38 +74,77 @@
             <a href="/?feed=all" class="feed-toggle-btn{% if feed == 'all' %} active{% endif %}">All Types</a>
         </div>
     </div>
-    <div class="feed-list">
+    <div class="rl-list">
         {% for inspection, restaurant in recent_inspections %}
-        <a href="/{{ restaurant.region }}/{{ restaurant.slug }}/" class="feed-item">
-            <div class="feed-name">{{ restaurant.display_name }}</div>
-            <div class="feed-meta">{{ restaurant.city }}, {{ restaurant.state }} · {{ inspection.inspection_date|format_date }}</div>
-            <div class="feed-score"
-                {% if inspection.score_tier %}style="color: var(--tier-{{ inspection.score_tier }})"{% endif %}>
-                {% if inspection.score is not none %}{{ inspection.score }}{% else %}—{% endif %}
-            </div>
-        </a>
+            {{ render_restaurant_row(restaurant, inspection=inspection) }}
         {% endfor %}
     </div>
     {% endif %}
 
-    {% if low_scores_this_month %}
-    <div class="section-header" style="margin-top: 28px;">
-        <h2>Lowest Scores This Month</h2>
-        <p class="section-desc">Facilities with the lowest inspection scores in the past 30 days.</p>
+    {% if worst_scores %}
+    <div class="section-header worst-header">
+        <h2>Worst in {{ worst_region | region_display }}</h2>
+        <div class="region-pills" data-feed="{{ feed }}">
+            {% for r in supported_regions %}
+            <a href="/?worst={{ r.slug }}{% if feed != 'restaurants' %}&feed={{ feed }}{% endif %}"
+               class="region-pill{% if r.slug == worst_region %} active{% endif %}"
+               data-region="{{ r.slug }}">{{ r.display }}</a>
+            {% endfor %}
+        </div>
     </div>
-    <div class="feed-list feed-list--warning">
-        {% for inspection, restaurant in low_scores_this_month %}
-        <a href="/{{ restaurant.region }}/{{ restaurant.slug }}/" class="feed-item">
-            <div class="feed-name">{{ restaurant.display_name }}</div>
-            <div class="feed-meta">{{ restaurant.city }}, {{ restaurant.state }} · {{ inspection.inspection_date|format_date }}</div>
-            <div class="feed-score"
-                {% if inspection.score_tier %}style="color: var(--tier-{{ inspection.score_tier }})"{% endif %}>
-                {% if inspection.score is not none %}{{ inspection.score }}{% else %}—{% endif %}
-            </div>
-        </a>
+    <div class="rl-list rl-list--warning" id="worst-list">
+        {% for inspection, restaurant in worst_scores %}
+            {{ render_restaurant_row(restaurant, inspection=inspection) }}
         {% endfor %}
     </div>
     {% endif %}
 
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+    var pills = document.querySelectorAll('.region-pill');
+    if (!pills.length) return;
+
+    var heading  = document.querySelector('.worst-header h2');
+    var list     = document.getElementById('worst-list');
+    var pillsBar = document.querySelector('.region-pills');
+
+    pills.forEach(function (pill) {
+        pill.addEventListener('click', function (e) {
+            e.preventDefault();
+            var region  = pill.dataset.region;
+            var display = pill.textContent.trim();
+
+            // Optimistic UI
+            pills.forEach(function (p) { p.classList.remove('active'); });
+            pill.classList.add('active');
+            if (heading) heading.textContent = 'Worst in ' + display;
+            if (list) list.style.opacity = '0.4';
+
+            fetch('/api/worst/' + region)
+                .then(function (r) { return r.text(); })
+                .then(function (html) {
+                    if (list) { list.innerHTML = html; list.style.opacity = '1'; }
+                    // Update pill hrefs so a hard reload preserves the selection
+                    var feed = pillsBar ? (pillsBar.dataset.feed || 'restaurants') : 'restaurants';
+                    pills.forEach(function (p) {
+                        var feedPart = (feed !== 'restaurants') ? ('&feed=' + feed) : '';
+                        p.href = '/?worst=' + p.dataset.region + feedPart;
+                    });
+                    // Push state so back button works
+                    var feedPart = '';
+                    var feed2 = pillsBar ? pillsBar.dataset.feed : 'restaurants';
+                    if (feed2 && feed2 !== 'restaurants') feedPart = '&feed=' + feed2;
+                    history.replaceState(null, '', '/?worst=' + region + feedPart);
+                })
+                .catch(function () {
+                    if (list) list.style.opacity = '1';
+                });
+        });
+    });
+}());
+</script>
 {% endblock %}

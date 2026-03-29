@@ -123,7 +123,7 @@ def parse_violations(vdict, codes):
     return out
 
 def risk_to_score(risk):
-    return round(100 * math.exp(-risk * 0.07))
+    return round(100 * math.exp(-risk * 0.05))
 
 def score_to_result(score):
     if score >= 80: return "Pass"

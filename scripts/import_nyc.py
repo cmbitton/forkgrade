@@ -22,7 +22,7 @@ Scoring notes:
     Critical violation   → weight 3
     Not Critical         → weight 1
     risk_score = sum of weights
-    score (0-100)        = round(100 * exp(-risk_score * 0.07))
+    score (0-100)        = round(100 * exp(-risk_score * 0.05))
   NYC letter grade (A/B/C) is stored separately in the grade field and
   shown as a bonus label on restaurant pages. All sorting and tier logic
   uses the 0-100 score, same as RI.
@@ -211,11 +211,10 @@ def parse_date(s: str) -> date | None:
 def compute_score(violations: list) -> tuple[int, int]:
     """NYC-tuned weighted formula.
     Returns (risk_score, display_score).
-    Critical → weight 3, Not Critical → weight 1.5, decay=0.03.
-    Tuned so A-grade averages 85-100, B 60-84, C below 60.
+    Critical → weight 3, Not Critical → weight 1.5, decay=0.05.
     """
     risk = sum(3 if v['severity'] == 'critical' else 1.5 for v in violations)
-    score = round(100 * math.exp(-risk * 0.03))
+    score = round(100 * math.exp(-risk * 0.05))
     return risk, score
 
 
