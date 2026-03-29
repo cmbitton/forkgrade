@@ -21,6 +21,8 @@ class Inspection(db.Model):
         db.Index('ix_inspections_restaurant_id', 'restaurant_id'),
         db.Index('ix_inspections_restaurant_date', 'restaurant_id', 'inspection_date'),
         db.Index('ix_inspections_date', 'inspection_date'),
+        db.Index('ix_inspections_score', 'score'),
+        db.Index('ix_inspections_date_score', 'inspection_date', 'score'),
     )
 
     violations = db.relationship(
