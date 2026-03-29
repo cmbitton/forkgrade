@@ -1,7 +1,33 @@
-from flask import Flask, render_template
+import logging
+import time
+
+from flask import Flask, g, has_request_context, render_template, request
+from sqlalchemy import event
+from sqlalchemy.engine import Engine
 from dotenv import load_dotenv
 
 load_dotenv()
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s %(levelname)s %(name)s: %(message)s',
+    datefmt='%H:%M:%S',
+)
+_perf_log = logging.getLogger('forkgrade.perf')
+
+
+# -- SQLAlchemy query timing (engine-level, fires for every cursor execute) --
+@event.listens_for(Engine, 'before_cursor_execute')
+def _before_cursor_execute(conn, cursor, statement, parameters, context, executemany):
+    conn.info['_query_t'] = time.monotonic()
+
+
+@event.listens_for(Engine, 'after_cursor_execute')
+def _after_cursor_execute(conn, cursor, statement, parameters, context, executemany):
+    elapsed = time.monotonic() - conn.info.pop('_query_t', time.monotonic())
+    if has_request_context():
+        g._db_queries = getattr(g, '_db_queries', 0) + 1
+        g._db_time = getattr(g, '_db_time', 0.0) + elapsed
 
 
 def create_app():
@@ -12,6 +38,32 @@ def create_app():
     from app.db import db, cache
     db.init_app(app)
     cache.init_app(app)
+
+    # -- Per-request performance logging --
+    @app.before_request
+    def _req_start():
+        g._req_start = time.monotonic()
+        g._db_queries = 0
+        g._db_time = 0.0
+
+    @app.after_request
+    def _req_end(response):
+        elapsed_ms = (time.monotonic() - g._req_start) * 1000
+        db_ms = getattr(g, '_db_time', 0.0) * 1000
+        n_queries = getattr(g, '_db_queries', 0)
+        level = logging.WARNING if elapsed_ms > 500 else logging.INFO
+        _perf_log.log(
+            level,
+            '%s %s %d | %.0fms total | %d quer%s %.0fms db',
+            request.method,
+            request.path,
+            response.status_code,
+            elapsed_ms,
+            n_queries,
+            'ies' if n_queries != 1 else 'y',
+            db_ms,
+        )
+        return response
 
     # Register custom Jinja2 filters
     from app.utils import get_region_display
