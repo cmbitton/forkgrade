@@ -1,4 +1,5 @@
 import json
+import threading
 import urllib.request
 from datetime import date, timedelta
 
@@ -31,24 +32,30 @@ def _client_ip():
     return xff.split(',')[0].strip() if xff else (request.remote_addr or '')
 
 
+def _geolocate_bg(ip, cache_key):
+    """Background thread: fetch geo for ip and warm the cache. Never blocks a request."""
+    try:
+        url = f'http://ip-api.com/json/{ip}?fields=regionName'
+        with urllib.request.urlopen(url, timeout=3) as resp:
+            data = json.loads(resp.read())
+        result = _GEO_REGION_MAP.get(data.get('regionName', ''), _DEFAULT_REGION)
+    except Exception:
+        result = _DEFAULT_REGION
+    cache.set(cache_key, result, timeout=3600)
+
+
 def _geolocate(ip):
     """Return a supported region slug for the given IP. Cached 1 h per IP.
-    Falls back to _DEFAULT_REGION on any error or local address."""
+    On cache miss, fires a background lookup and returns the default immediately
+    so the page is never blocked waiting on the external API."""
     if not ip or ip.startswith(('127.', '10.', '192.168.', '::1')):
         return _DEFAULT_REGION
     cache_key = f'geo_{ip}'
     hit = cache.get(cache_key)
     if hit is not None:
         return hit
-    try:
-        url = f'http://ip-api.com/json/{ip}?fields=regionName'
-        with urllib.request.urlopen(url, timeout=2) as resp:
-            data = json.loads(resp.read())
-        result = _GEO_REGION_MAP.get(data.get('regionName', ''), _DEFAULT_REGION)
-    except Exception:
-        result = _DEFAULT_REGION
-    cache.set(cache_key, result, timeout=3600)
-    return result
+    threading.Thread(target=_geolocate_bg, args=(ip, cache_key), daemon=True).start()
+    return _DEFAULT_REGION
 
 
 def _recent_inspections(limit=10, restaurants_only=False):
