@@ -1,0 +1,27 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container" style="max-width: 720px; padding-top: 48px; padding-bottom: 64px;">
+    <h1>About ForkGrade</h1>
+    <p>ForkGrade is a free, independent tool that collects restaurant and food facility health inspection records from government sources and presents them in a consistent, searchable format.</p>
+
+    <p>Health inspection data is public, but it's often buried in agency databases that are slow, hard to search, and inconsistent across regions. ForkGrade pulls that data into one place so it's easy to look up any restaurant, see its inspection history, and understand its risk level at a glance.</p>
+
+    <h2>Coverage</h2>
+    <p>ForkGrade currently covers:</p>
+    <ul>
+        <li><strong>New York City</strong> — NYC Department of Health and Mental Hygiene</li>
+        <li><strong>Rhode Island</strong> — Rhode Island Department of Health</li>
+    </ul>
+    <p>More regions are in progress.</p>
+
+    <h2>What we show</h2>
+    <p>For each facility we show: inspection dates, scores, violation details, and a risk tier (Low / Medium / High). NYC inspections also show the official DOH letter grade (A, B, or C) where one was issued.</p>
+
+    <h2>Independence</h2>
+    <p>ForkGrade is not affiliated with any government agency. Scores, tiers, and risk labels are calculated by us from public violation data — they are not official ratings. See the <a href="/methodology">Methodology</a> page for how scores are calculated.</p>
+
+    <h2>Data freshness</h2>
+    <p>Inspection records are refreshed daily from government data sources. There may be a short lag between when an inspection occurs and when it appears here.</p>
+</div>
+{% endblock %}

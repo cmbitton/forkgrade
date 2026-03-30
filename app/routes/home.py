@@ -45,6 +45,26 @@ def _lowest_scores(limit=10):
     return rows
 
 
+@home_bp.route('/about', strict_slashes=False)
+def about():
+    return render_template(
+        'about.html',
+        title=f'About | {current_app.config["SITE_NAME"]}',
+        description='ForkGrade is a free public tool that aggregates restaurant health inspection data from government sources.',
+        canonical_url=current_app.config['BASE_URL'] + '/about',
+    )
+
+
+@home_bp.route('/methodology', strict_slashes=False)
+def methodology():
+    return render_template(
+        'methodology.html',
+        title=f'Methodology | {current_app.config["SITE_NAME"]}',
+        description='How ForkGrade calculates restaurant health inspection scores from violation data.',
+        canonical_url=current_app.config['BASE_URL'] + '/methodology',
+    )
+
+
 @home_bp.route('/')
 def index():
     q    = request.args.get('q', '').strip()

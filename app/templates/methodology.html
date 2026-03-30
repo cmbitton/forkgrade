@@ -1,0 +1,78 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container" style="max-width: 720px; padding-top: 48px; padding-bottom: 64px;">
+    <h1>Methodology</h1>
+    <p>ForkGrade converts raw violation data into a single 0–100 score for each inspection. Here's exactly how that works.</p>
+
+    <h2>Scoring formula</h2>
+    <p>Each violation is assigned a weight based on its severity. Those weights are summed into a <em>risk score</em>, which is then converted to a 0–100 display score using an exponential decay:</p>
+    <pre style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 16px; font-family: 'DM Mono', monospace; font-size: 14px; overflow-x: auto;">score = round(100 × e^(−risk × 0.05))</pre>
+    <p>A restaurant with no violations scores 100. More violations, or more severe ones, push the score lower. The decay is gradual — a single critical violation yields roughly 86, while a string of them drops the score into failing territory.</p>
+
+    <h2>Violation weights</h2>
+    <p>Weights depend on how a region classifies violations:</p>
+    <table style="width: 100%; border-collapse: collapse; margin: 16px 0;">
+        <thead>
+            <tr style="border-bottom: 2px solid var(--border); text-align: left;">
+                <th style="padding: 8px 12px;">Severity</th>
+                <th style="padding: 8px 12px;">Weight</th>
+                <th style="padding: 8px 12px;">Used by</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr style="border-bottom: 1px solid var(--border);">
+                <td style="padding: 8px 12px;">Critical</td>
+                <td style="padding: 8px 12px;">3</td>
+                <td style="padding: 8px 12px;">All regions</td>
+            </tr>
+            <tr style="border-bottom: 1px solid var(--border);">
+                <td style="padding: 8px 12px;">Major</td>
+                <td style="padding: 8px 12px;">2</td>
+                <td style="padding: 8px 12px;">Regions with 3-tier classification (e.g. Rhode Island)</td>
+            </tr>
+            <tr style="border-bottom: 1px solid var(--border);">
+                <td style="padding: 8px 12px;">Minor / Non-critical</td>
+                <td style="padding: 8px 12px;">1</td>
+                <td style="padding: 8px 12px;">All regions</td>
+            </tr>
+        </tbody>
+    </table>
+    <p>NYC classifies violations as either Critical or Not Critical, so only the critical=3 and non-critical=1 weights apply there.</p>
+
+    <h2>Score tiers</h2>
+    <table style="width: 100%; border-collapse: collapse; margin: 16px 0;">
+        <thead>
+            <tr style="border-bottom: 2px solid var(--border); text-align: left;">
+                <th style="padding: 8px 12px;">Tier</th>
+                <th style="padding: 8px 12px;">Score range</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr style="border-bottom: 1px solid var(--border);">
+                <td style="padding: 8px 12px;"><span class="tier-badge tier-low">Low Risk</span></td>
+                <td style="padding: 8px 12px;">75 and above</td>
+            </tr>
+            <tr style="border-bottom: 1px solid var(--border);">
+                <td style="padding: 8px 12px;"><span class="tier-badge tier-medium">Medium Risk</span></td>
+                <td style="padding: 8px 12px;">55 – 74</td>
+            </tr>
+            <tr style="border-bottom: 1px solid var(--border);">
+                <td style="padding: 8px 12px;"><span class="tier-badge tier-high">High Risk</span></td>
+                <td style="padding: 8px 12px;">Below 55</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <h2>NYC letter grades</h2>
+    <p>NYC DOH issues official letter grades (A, B, C) after scored inspections. Where available, we display this grade alongside our score. The letter grade comes directly from the city — we do not calculate it. A grade of A requires fewer than 14 points on the city's own penalty scale; B is 14–27 points; C is 28 or more.</p>
+    <p>Some inspections are marked <em>Grade Pending</em> — this happens when a restaurant requests a hearing to contest its grade, or when a re-inspection is scheduled. For these, we show an estimated risk tier based on violations, not an official grade.</p>
+
+    <h2>Data sources</h2>
+    <ul>
+        <li><strong>NYC</strong> — <a href="https://data.cityofnewyork.us/Health/DOHMH-New-York-City-Restaurant-Inspection-Results/43nn-pn8j" target="_blank" rel="noopener">NYC Open Data: DOHMH Restaurant Inspection Results</a></li>
+        <li><strong>Rhode Island</strong> — Rhode Island Department of Health public inspection records</li>
+    </ul>
+    <p>Data is refreshed daily. ForkGrade is an independent tool and is not affiliated with any government agency.</p>
+</div>
+{% endblock %}
