@@ -35,22 +35,23 @@ nav {
     justify-content: space-between;
 }
 .nav-brand {
-    font-size: 18px;
-    font-weight: 700;
-    color: #fff;
     text-decoration: none;
-    letter-spacing: -0.3px;
     display: flex;
     align-items: center;
-    gap: 7px;
+    gap: 8px;
 }
-.nav-brand span { color: #7EBF80; }
+.nav-wordmark {
+    font-family: 'DM Sans', sans-serif;
+    font-size: 18px;
+    font-weight: 700;
+    color: #e8eae6;
+    letter-spacing: -0.3px;
+}
+.nav-wordmark span { color: #7EBF80; }
 .nav-fork {
     width: 13px;
     height: 22px;
     flex-shrink: 0;
-    position: relative;
-    top: -1px;
 }
 .nav-links { display: flex; gap: 24px; }
 .nav-links a {
@@ -59,7 +60,7 @@ nav {
     font-size: 14px;
     font-weight: 500;
 }
-.nav-links a:hover { color: #fff; }
+.nav-links a:hover { color: #7EBF80; transition: color 0.15s; }
 
 /* BREADCRUMB */
 .breadcrumb {
