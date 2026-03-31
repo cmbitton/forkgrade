@@ -18,7 +18,7 @@
         <div class="region-stats">
             <div class="region-stat">
                 <strong>{{ total_restaurants }}</strong>
-                Restaurants
+                Locations
             </div>
             <div class="region-stat">
                 <strong>{{ total_inspections }}</strong>
@@ -33,7 +33,7 @@
                 type="text"
                 name="q"
                 class="search-input"
-                placeholder="Search restaurants in {{ region_display }}..."
+                placeholder="Search locations in {{ region_display }}..."
                 value="{{ search_query or '' }}"
                 autocomplete="off"
             >
@@ -65,7 +65,7 @@
         {% for nbhd in top_cities %}
         <a href="/{{ region }}/{{ nbhd.city_slug }}/" class="neighborhood-card neighborhood-card--top-city">
             <h3>{{ nbhd.city or 'Unknown' }}</h3>
-            <p>{{ nbhd.count }} restaurant{{ 's' if nbhd.count != 1 else '' }}</p>
+            <p>{{ nbhd.count }} location{{ 's' if nbhd.count != 1 else '' }}</p>
         </a>
         {% endfor %}
     </div>
@@ -85,7 +85,7 @@
             {% for nbhd in neighborhoods %}
             <a href="/{{ region }}/{{ nbhd.city_slug }}/" class="neighborhood-card">
                 <h3>{{ nbhd.city or 'Unknown' }}</h3>
-                <p>{{ nbhd.count }} restaurant{{ 's' if nbhd.count != 1 else '' }}</p>
+                <p>{{ nbhd.count }} location{{ 's' if nbhd.count != 1 else '' }}</p>
             </a>
             {% endfor %}
         </div>

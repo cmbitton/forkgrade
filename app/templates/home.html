@@ -44,7 +44,7 @@
             {% for item in regions %}
             <a href="/{{ item.region }}/" class="region-card">
                 <h3>{{ item.region | region_display }}</h3>
-                <p>{{ item.count }} restaurant{{ 's' if item.count != 1 else '' }}</p>
+                <p>{{ item.count }} location{{ 's' if item.count != 1 else '' }}</p>
             </a>
             {% endfor %}
         </div>

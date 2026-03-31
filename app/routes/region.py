@@ -268,7 +268,7 @@ def render_neighborhood(region, city_slug_str, city_name, restaurants_with_score
     return render_template(
         'neighborhood.html',
         title         = f'Restaurant Health Inspections in {city_name}, {region_display} — Scores & Rankings | {site_name}',
-        description   = f'Browse health inspection scores for {total} restaurants in {city_name}, {region_display}. See the cleanest and lowest-scoring restaurants.',
+        description   = f'Browse health inspection scores for {total} locations in {city_name}, {region_display}. See the cleanest and lowest-scoring restaurants.',
         canonical_url = f'{base_url}/{region}/{city_slug_str}/',
         region        = region,
         region_display= region_display,
@@ -393,7 +393,7 @@ def region_index(region):
     return render_template(
         'region.html',
         title          = f'Restaurant Health Inspections in {region_display} — Scores & Violations | {site_name}',
-        description    = f'Browse health inspection scores for {count} restaurants in {region_display}. See the cleanest and lowest-scoring restaurants, ranked by inspection score.',
+        description    = f'Browse health inspection scores for {count} locations in {region_display}. See the cleanest and lowest-scoring restaurants, ranked by inspection score.',
         canonical_url  = f'{base_url}/{region}/',
         region         = region,
         region_display = region_display,
