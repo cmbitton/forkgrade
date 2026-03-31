@@ -894,6 +894,7 @@ nav {
     }
     .rl-date { display: none; }
     .rl-address { display: none; }
+    .rl-city { display: none; }
     .rl-mobile-sub {
         display: block;
         font-size: 12px;

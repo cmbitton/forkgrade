@@ -1,6 +1,17 @@
-{% macro render_pagination(page, total_pages, base_path, sort=none) %}
+{% macro render_pagination(page, total_pages, base_path, sort=none, qs_prefix=none) %}
 {% if total_pages > 1 %}
-{% set qs_sort = ('?sort=' ~ sort ~ '&') if sort else '?' %}
+
+{#
+  qs_prefix: if provided, used as the full query string prefix before page= (e.g. '?q=pizza&sort=date&')
+  Otherwise built from base_path + sort as before.
+#}
+{% if qs_prefix is not none %}
+    {% set page_base = base_path ~ qs_prefix %}
+{% elif sort %}
+    {% set page_base = base_path ~ '?sort=' ~ sort ~ '&' %}
+{% else %}
+    {% set page_base = base_path ~ '?' %}
+{% endif %}
 
 {# Build the page numbers to show: first, last, current ±2, with gaps #}
 {% set ns = namespace(pages=[], prev=-1) %}
@@ -16,19 +27,19 @@
 
 <div class="pagination">
     {% if page > 1 %}
-    <a href="{{ base_path }}{{ qs_sort }}page={{ page - 1 }}" class="page-btn">← Prev</a>
+    <a href="{{ page_base }}page={{ page - 1 }}" class="page-btn">← Prev</a>
     {% endif %}
 
     {% for p in ns.pages %}
         {% if p == '...' %}
         <span class="page-ellipsis">…</span>
         {% else %}
-        <a href="{{ base_path }}{{ qs_sort }}page={{ p }}" class="page-btn{% if p == page %} active{% endif %}">{{ p }}</a>
+        <a href="{{ page_base }}page={{ p }}" class="page-btn{% if p == page %} active{% endif %}">{{ p }}</a>
         {% endif %}
     {% endfor %}
 
     {% if page < total_pages %}
-    <a href="{{ base_path }}{{ qs_sort }}page={{ page + 1 }}" class="page-btn">Next →</a>
+    <a href="{{ page_base }}page={{ page + 1 }}" class="page-btn">Next →</a>
     {% endif %}
 </div>
 {% endif %}

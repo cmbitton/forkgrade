@@ -1,0 +1,47 @@
+{#
+  render_search_results(results, total, sort, page, total_pages, base_path, q, show_region=false)
+
+  results     — list of (Restaurant, Inspection|None) tuples
+  total       — total matching count
+  sort        — current sort key: 'date', 'score', 'name'
+  page        — current page number
+  total_pages — total pages
+  base_path   — route path without query string (e.g. '/' or '/nyc/')
+  q           — search query string
+  show_region — whether to show region label on each row (true on homepage, false on region pages)
+#}
+{% from 'components/restaurant_row.html' import render_restaurant_row %}
+{% from 'components/pagination.html' import render_pagination %}
+
+{% macro render_search_results(results, total, sort, page, total_pages, base_path, q, show_region=false) %}
+<div class="section-header">
+    <h2>
+        {% if results or total > 0 %}
+            {{ total }} result{{ 's' if total != 1 else '' }} for "{{ q }}"
+        {% else %}
+            No results for "{{ q }}"
+        {% endif %}
+    </h2>
+</div>
+
+{% if total > 0 %}
+{% set qs_base = base_path ~ '?q=' ~ q | urlencode ~ '&' %}
+<div class="sort-bar">
+    <span class="sort-label">Sort by:</span>
+    <a href="{{ qs_base }}sort=date"  class="sort-btn{% if sort == 'date' or not sort %} active{% endif %}">Last Inspected</a>
+    <a href="{{ qs_base }}sort=score" class="sort-btn{% if sort == 'score' %} active{% endif %}">Score</a>
+    <a href="{{ qs_base }}sort=name"  class="sort-btn{% if sort == 'name' %} active{% endif %}">Name</a>
+</div>
+
+<div class="rl-list" style="margin-bottom: 16px;">
+    {% for r, insp in results %}
+        {{ render_restaurant_row(r, inspection=insp, show_city=true, show_region=show_region) }}
+    {% endfor %}
+</div>
+
+{{ render_pagination(page, total_pages, base_path, qs_prefix='?q=' ~ q | urlencode ~ '&sort=' ~ sort ~ '&') }}
+
+{% else %}
+<p style="color: var(--text-secondary); margin-bottom: 32px;">Try a different search term.</p>
+{% endif %}
+{% endmacro %}

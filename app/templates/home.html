@@ -1,5 +1,6 @@
 {% extends 'base.html' %}
 {% from 'components/restaurant_row.html' import render_restaurant_row %}
+{% from 'components/search_results.html' import render_search_results %}
 
 {% block content %}
 <div class="hero">
@@ -28,24 +29,10 @@
 <div class="container">
 
     {% if search_results is not none %}
-    <div class="section-header">
-        <h2>
-            {% if search_results %}
-                {{ search_results|length }} result{{ 's' if search_results|length != 1 else '' }} for "{{ search_query }}"
-            {% else %}
-                No results for "{{ search_query }}"
-            {% endif %}
-        </h2>
-    </div>
-    {% if search_results %}
-    <div class="rl-list" style="margin-bottom: 32px;">
-        {% for r in search_results %}
-            {{ render_restaurant_row(r) }}
-        {% endfor %}
-    </div>
-    {% else %}
-    <p style="color: var(--text-secondary); margin-bottom: 32px;">Try a different search term.</p>
-    {% endif %}
+    {{ render_search_results(
+        search_results, search_total, search_sort, search_page, search_total_pages,
+        search_base_path, search_query, show_region=true
+    ) }}
     {% endif %}
 
     {% if regions %}

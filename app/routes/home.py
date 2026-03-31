@@ -5,6 +5,7 @@ from sqlalchemy import func
 from app.db import db, cache
 from app.models.restaurant import Restaurant
 from app.models.inspection import Inspection
+from app.utils import search_restaurants
 
 home_bp = Blueprint('home', __name__)
 
@@ -71,10 +72,11 @@ def index():
     feed = request.args.get('feed', 'restaurants')
 
     if q:
-        search_results = Restaurant.query.filter(
-            Restaurant.name.ilike(f'%{q}%'),
-            Restaurant.inspections.any(),
-        ).order_by(Restaurant.name).limit(20).all()
+        sort     = request.args.get('sort', 'date')
+        page     = max(1, request.args.get('page', 1, type=int))
+        per_page = 25
+        search_results, search_total = search_restaurants(q, sort=sort, page=page, per_page=per_page)
+        total_pages = max(1, (search_total + per_page - 1) // per_page)
 
         return render_template(
             'home.html',
@@ -83,6 +85,11 @@ def index():
             canonical_url=current_app.config['BASE_URL'] + '/',
             search_query=q,
             search_results=search_results,
+            search_total=search_total,
+            search_sort=sort,
+            search_page=page,
+            search_total_pages=total_pages,
+            search_base_path='/',
             regions=[],
             recent_inspections=[],
             lowest_scores=[],

@@ -12,7 +12,7 @@ from app.db import db, cache
 from app.models.restaurant import Restaurant
 from app.models.inspection import Inspection
 from app.routes.restaurant import render_restaurant
-from app.utils import get_region_display
+from app.utils import get_region_display, search_restaurants
 
 region_bp = Blueprint('region', __name__)
 
@@ -305,17 +305,11 @@ def region_index(region):
         )
         if count == 0:
             abort(404)
-        search_results = (
-            Restaurant.query
-            .filter(
-                Restaurant.region == region,
-                Restaurant.name.ilike(f'%{q}%'),
-                Restaurant.inspections.any(),
-            )
-            .order_by(Restaurant.name)
-            .limit(20)
-            .all()
-        )
+        sort     = request.args.get('sort', 'date')
+        page     = max(1, request.args.get('page', 1, type=int))
+        per_page = 25
+        search_results, search_total = search_restaurants(q, region=region, sort=sort, page=page, per_page=per_page)
+        total_pages = max(1, (search_total + per_page - 1) // per_page)
         return render_template(
             'region.html',
             title          = f'Health Inspections in {region_display} | {site_name}',
@@ -323,16 +317,21 @@ def region_index(region):
             canonical_url  = f'{base_url}/{region}/',
             region         = region,
             region_display = region_display,
-            search_query   = q,
-            search_results = search_results,
-            total_restaurants  = count,
-            total_inspections  = 0,
-            neighborhoods      = [],
-            top_cities         = [],
-            recent_inspections = [],
-            top_restaurants    = [],
-            bottom_restaurants = [],
-            cuisine_types      = [],
+            search_query        = q,
+            search_results      = search_results,
+            search_total        = search_total,
+            search_sort         = sort,
+            search_page         = page,
+            search_total_pages  = total_pages,
+            search_base_path    = f'/{region}/',
+            total_restaurants   = count,
+            total_inspections   = 0,
+            neighborhoods       = [],
+            top_cities          = [],
+            recent_inspections  = [],
+            top_restaurants     = [],
+            bottom_restaurants  = [],
+            cuisine_types       = [],
         )
     cached = cache.get(cache_key)
     if cached:
