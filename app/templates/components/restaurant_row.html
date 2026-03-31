@@ -1,12 +1,13 @@
 {#
-  render_restaurant_row(restaurant, inspection=none, rank=none, show_city=false, show_region=true, hide_mobile_sub=false)
+  render_restaurant_row(restaurant, inspection=none, rank=none, show_city=false, show_region=true, hide_mobile_sub=false, mobile_date_only=false)
 
   restaurant      — Restaurant model object (always required)
   inspection      — Inspection model object (optional; if omitted, uses restaurant.latest_score)
   rank            — Integer rank number (optional; omit on feed lists, pass on city leaderboards)
   show_city       — Show city (and optionally region) below name on desktop (default false)
   show_region     — Include region in the desktop city line; ignored if show_city=false (default true)
-  hide_mobile_sub — Hide the mobile city · date sub-line (use on city pages where city is redundant)
+  hide_mobile_sub — Hide the mobile sub-line entirely (default false)
+  mobile_date_only — Show only the date in the mobile sub-line, no city (use on city pages)
 
   Container usage:
     Feed list (no ranks):
@@ -24,7 +25,7 @@
       <div class="rl-list rl-list--warning"> ... </div>
 #}
 
-{% macro render_restaurant_row(restaurant, inspection=none, rank=none, show_city=false, show_region=true, hide_mobile_sub=false) %}
+{% macro render_restaurant_row(restaurant, inspection=none, rank=none, show_city=false, show_region=true, hide_mobile_sub=false, mobile_date_only=false) %}
 {%- set tier   = (inspection.score_tier if inspection else none) or restaurant.score_tier -%}
 {%- set score  = (inspection.score if inspection else restaurant.latest_score) -%}
 {%- set idate  = inspection.inspection_date if inspection else none -%}
@@ -41,8 +42,9 @@
         {% endif %}
         {% if not hide_mobile_sub %}
         <div class="rl-mobile-sub">
-            {%- if restaurant.city %}{{ restaurant.city }}{% endif -%}
-            {%- if idate %} &middot; {{ idate|format_date }}{% endif -%}
+            {%- if not mobile_date_only and restaurant.city %}{{ restaurant.city }}{% endif -%}
+            {%- if not mobile_date_only and restaurant.city and idate %} &middot; {% endif -%}
+            {%- if idate %}{{ idate|format_date }}{% endif -%}
         </div>
         {% endif %}
     </div>

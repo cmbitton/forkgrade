@@ -66,7 +66,7 @@
                     <div>Last Inspected</div>
                 </div>
                 {% for r, insp in rows %}
-                    {{ render_restaurant_row(r, inspection=insp, rank=loop.index + (page - 1) * per_page, hide_mobile_sub=true) }}
+                    {{ render_restaurant_row(r, inspection=insp, rank=loop.index + (page - 1) * per_page, mobile_date_only=true) }}
                 {% endfor %}
             </div>
 
