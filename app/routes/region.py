@@ -1,6 +1,7 @@
 import logging
 import re
 import time
+from datetime import date, timedelta
 
 from flask import Blueprint, render_template, request, abort, current_app
 from sqlalchemy import func
@@ -22,21 +23,25 @@ _NON_RESTAURANT_TYPES = frozenset([
 ])
 
 
-def _scored_restaurants(region, order='asc', limit=5):
+def _scored_restaurants(region, order='asc', limit=5, days=None):
     """(Restaurant, Inspection) tuples sorted by risk_score, restaurants only."""
     col = Inspection.risk_score.asc() if order == 'asc' else Inspection.risk_score.desc()
+    filters = [
+        Restaurant.region == region,
+        Inspection.risk_score.isnot(None),
+        Restaurant.cuisine_type.isnot(None),
+        ~Restaurant.cuisine_type.in_(_NON_RESTAURANT_TYPES),
+    ]
+    if days is not None:
+        cutoff = date.today() - timedelta(days=days)
+        filters.append(Inspection.inspection_date >= cutoff)
     return (
         db.session.query(Restaurant, Inspection)
         .join(Inspection, db.and_(
             Inspection.restaurant_id == Restaurant.id,
             Inspection.inspection_date == Restaurant.latest_inspection_date,
         ))
-        .filter(
-            Restaurant.region == region,
-            Inspection.risk_score.isnot(None),
-            Restaurant.cuisine_type.isnot(None),
-            ~Restaurant.cuisine_type.in_(_NON_RESTAURANT_TYPES),
-        )
+        .filter(*filters)
         .order_by(col)
         .limit(limit)
         .all()
@@ -395,7 +400,7 @@ def region_index(region):
             .all()
         )
 
-        bottom_restaurants = _scored_restaurants(region, order='desc', limit=5)
+        bottom_restaurants = _scored_restaurants(region, order='desc', limit=5, days=30)
         cuisine_types = _get_cuisine_types(region)
 
         cache.set(cache_key, (
