@@ -303,7 +303,8 @@ def parse_detail(html: str, facility_id: str) -> dict | None:
     # following status cell.
 
     violations = []
-    seen_codes = set()
+    seen_codes   = set()
+    current_category = ''   # tracks the most recent category-header tooltip
 
     # Split the HTML into segments at each violation link so we can check
     # what status follows each one.
@@ -313,9 +314,10 @@ def parse_detail(html: str, facility_id: str) -> dict | None:
         tooltip = m.group(1).strip()   # full ddrivetip text
         code    = m.group(2).strip().rstrip('.')
 
-        # Skip category-header rows (empty code, tooltip is just a category ref
-        # like "Foodborne Illness Risk Factors and Public Health Interventions: 13")
+        # Category-header rows have an empty code — update current category and skip.
+        # e.g. "Foodborne Illness Risk Factors and Public Health Interventions: 13"
         if not code:
+            current_category = tooltip.lower()
             continue
         if code in seen_codes:
             continue
@@ -330,13 +332,9 @@ def parse_detail(html: str, facility_id: str) -> dict | None:
         if not desc:
             desc = code
 
-        # Severity: if the PRECEDING segment (the category-header for this row)
-        # mentions "Foodborne Illness Risk Factors", it's a priority item → critical.
-        severity = 'minor'
-        if idx > 0:
-            prev_tooltip = segments[idx - 1].group(1)
-            if 'foodborne illness risk factors' in prev_tooltip.lower():
-                severity = 'critical'
+        # Severity: all violations under "Foodborne Illness Risk Factors" are critical.
+        # All others (Good Retail Practices, etc.) are minor.
+        severity = 'critical' if 'foodborne illness risk factors' in current_category else 'minor'
 
         # Corrected on site: look in the HTML between this match and the next
         end_pos   = segments[idx + 1].start() if idx + 1 < len(segments) else len(html)
