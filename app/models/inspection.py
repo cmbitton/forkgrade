@@ -11,6 +11,7 @@ class Inspection(db.Model):
         nullable=False
     )
     inspection_date = db.Column(db.Date, nullable=False)
+    source_id = db.Column(db.String(50))               # portal inspection ID (e.g. INSP-12345)
     score = db.Column(db.Integer, nullable=True)       # normalized 0–100 display score
     risk_score = db.Column(db.Numeric(6, 2), nullable=True)  # raw weighted violation sum
     grade = db.Column(db.String(5), nullable=True)

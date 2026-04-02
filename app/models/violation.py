@@ -12,6 +12,7 @@ class Violation(db.Model):
     )
     violation_code = db.Column(db.String(50))
     description = db.Column(db.Text)
+    inspector_notes = db.Column(db.Text)
     severity = db.Column(db.String(20))  # critical, major, minor
     corrected_on_site = db.Column(db.Boolean, default=False)
 

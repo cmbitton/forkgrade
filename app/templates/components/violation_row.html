@@ -6,6 +6,9 @@
         {% if violation.corrected_on_site %}
         <span style="font-size:12px; color: var(--tier-low); margin-left: 6px;">(corrected on site)</span>
         {% endif %}
+        {% if violation.inspector_notes %}
+        <div class="inspector-notes">Inspector notes: {{ violation.inspector_notes }}</div>
+        {% endif %}
         {% if violation.violation_code %}
         <div class="violation-code">{{ violation.violation_code }}</div>
         {% endif %}

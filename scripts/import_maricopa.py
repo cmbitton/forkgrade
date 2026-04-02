@@ -32,6 +32,8 @@ Usage:
   python3 scripts/import_maricopa.py              # check existing restaurants (last 7 days)
   python3 scripts/import_maricopa.py --days=14
   python3 scripts/import_maricopa.py --full        # enumerate all ~26k permits from scratch
+  python3 scripts/import_maricopa.py --rescrape    # re-fetch violations for all existing DB records
+  python3 scripts/import_maricopa.py --rescrape --since=2022-01-01  # limit to inspections after date
   python3 scripts/import_maricopa.py --dry-run     # parse only, no DB writes
 """
 
@@ -111,28 +113,28 @@ _STRIP_RE   = re.compile(r'\s*(?:addl notes:|corrective action:|predefined comme
                           re.IGNORECASE | re.DOTALL)
 
 
-def _clean_desc(text: str) -> str:
-    """Strip Maricopa portal boilerplate; keep violation name + real inspector notes."""
-    # Extract real inspector observation before stripping addl notes block
+def _clean_desc(text: str) -> tuple[str, str]:
+    """
+    Strip Maricopa portal boilerplate from a violation description.
+    Returns (description, inspector_notes) as separate strings.
+    description    — the FDA violation name / code description
+    inspector_notes — real inspector observation from 'addl notes:' field (may be empty)
+    """
     notes = ''
     m = _ADDL_RE.search(text)
     if m:
         candidate = m.group(1).strip().rstrip('.')
         if candidate:
-            notes = candidate
+            notes = re.sub(r'\s+', ' ', candidate).strip()
+            notes = (notes[0].upper() + notes[1:]) if notes else ''
 
     text = _PROMO_RE.sub('', text)
     text = _URL_RE.sub('', text)
     text = _STRIP_RE.sub('', text)
     base = re.sub(r'\s+', ' ', text).strip().rstrip('.')
+    base = (base[0].upper() + base[1:]) if base else text
 
-    if notes:
-        result = f'{base}. {notes[0].upper()}{notes[1:]}'
-    else:
-        result = base
-
-    result = re.sub(r'\s+', ' ', result).strip()
-    return (result[0].upper() + result[1:]) if result else text
+    return base, notes
 
 
 # ── Severity ──────────────────────────────────────────────────────────────────
@@ -480,8 +482,8 @@ _COMMENT_RE = re.compile(
         r'|'
         r'\s*[-–]\s*(Priority\s+Foundation|Priority|Core)\s*:'  # new format: " - Priority:"
     r')'
-    r'\s*([^<\r\n]{0,400})',                             # description text
-    re.IGNORECASE,
+    r'\s*([^<]{0,2000})',                                # description text (no HTML tags)
+    re.IGNORECASE | re.DOTALL,
 )
 
 # Grade from metadata block: <span class="fw-bold">Grade</span><br /><span>A</span>
@@ -550,30 +552,26 @@ def parse_inspection_page(html: str, permit_id: str, insp_id: str) -> dict | Non
     groups = re.split(r'<p class="mb-0 mt-3">', vdiv, flags=re.IGNORECASE)
 
     for group in groups[1:]:   # skip preamble before first violation
-        # Extract all <p class='mb-1'> comment lines in this group
-        comment_lines = re.findall(r"<p class='mb-1'>(.*?)</p>", group,
-                                   re.IGNORECASE | re.DOTALL)
+        # Join all <p class='mb-1'> comment lines into one string so that
+        # descriptions split across multiple <p> elements are captured in full.
+        raw_lines = re.findall(r"<p class='mb-1'>(.*?)</p>", group,
+                               re.IGNORECASE | re.DOTALL)
+        full_text = ' '.join(_strip(l) for l in raw_lines).strip()
 
-        # The first non-empty comment line should contain the FDA code
+        if not full_text:
+            continue
+
         code = desc = None
         severity = 'minor'
-        corrected = False
+        corrected = bool(_COS_RE.search(full_text))
 
-        for raw_line in comment_lines:
-            line = _strip(raw_line)
-            if not line:
-                continue
-
-            m = _COMMENT_RE.search(line)
-            if m and code is None:
-                code        = re.sub(r'\s+', '', m.group(1)).strip()   # normalise spaces in code
-                letter_code = m.group(2)
-                word_label  = m.group(3)
-                desc        = (m.group(4) or '').strip()
-                severity    = _sev_from_match(letter_code, word_label, code)
-
-            if _COS_RE.search(line):
-                corrected = True
+        m = _COMMENT_RE.search(full_text)
+        if m:
+            code        = re.sub(r'\s+', '', m.group(1)).strip()
+            letter_code = m.group(2)
+            word_label  = m.group(3)
+            desc        = (m.group(4) or '').strip()
+            severity    = _sev_from_match(letter_code, word_label, code)
 
         if not code:
             continue
@@ -581,14 +579,16 @@ def parse_inspection_page(html: str, permit_id: str, insp_id: str) -> dict | Non
             continue
         seen_codes.add(code)
 
+        notes = ''
         if not desc:
             desc = code
         else:
-            desc = _clean_desc(desc)
+            desc, notes = _clean_desc(desc)
 
         violations.append({
             'code':      code,
             'desc':      desc,
+            'notes':     notes,
             'severity':  severity,
             'corrected': corrected,
         })
@@ -628,6 +628,7 @@ def _write_inspections(restaurant, new_insp_list, db, Inspection, Violation):
         insp = Inspection(
             restaurant_id   = restaurant.id,
             inspection_date = insp_date,
+            source_id       = detail.get('insp_id'),
             inspection_type = detail.get('type', 'Routine'),
             score           = score,
             risk_score      = risk,
@@ -642,6 +643,7 @@ def _write_inspections(restaurant, new_insp_list, db, Inspection, Violation):
                 inspection_id     = insp.id,
                 violation_code    = v['code'],
                 description       = v['desc'],
+                inspector_notes   = v.get('notes') or None,
                 severity          = v['severity'],
                 corrected_on_site = v['corrected'],
             ))
@@ -659,7 +661,7 @@ def _write_inspections(restaurant, new_insp_list, db, Inspection, Violation):
 
 # ── Threaded fetch helpers ────────────────────────────────────────────────────
 
-WORKERS = 20   # concurrent HTTP workers for full import
+WORKERS = 80   # concurrent HTTP workers
 
 def _fetch_permit_page(permit_id: str) -> tuple:
     """Returns (permit_id, parsed_data_or_None). Thread-safe."""
@@ -814,6 +816,279 @@ def run_full_import(dry_run: bool, app, db, Restaurant, Inspection, Violation,
         print(f'\nFull import complete: {total_r} new restaurants, {total_i} inspections written.')
 
 
+# ── Rescrape import ───────────────────────────────────────────────────────────
+
+def _rescrape_inspections(restaurant, new_insp_list, db, Inspection, Violation):
+    """
+    Like _write_inspections but REPLACES violations for inspections already in DB.
+    Used by --rescrape to fix truncated descriptions without re-creating restaurants.
+    Returns count of inspections written or updated.
+    """
+    written = 0
+    for detail in new_insp_list:
+        insp_date = detail.get('date')
+        if not insp_date:
+            continue
+
+        violations = detail.get('violations', [])
+        risk, score = compute_score(violations)
+        grade = detail.get('grade')
+
+        existing = Inspection.query.filter_by(
+            restaurant_id=restaurant.id, inspection_date=insp_date
+        ).first()
+
+        if existing:
+            # Replace violations; update score + source_id in case parsing improved
+            Violation.query.filter_by(inspection_id=existing.id).delete()
+            existing.score           = score
+            existing.risk_score      = risk
+            existing.result          = score_to_result(score)
+            existing.inspection_type = detail.get('type', 'Routine')
+            if not existing.source_id:
+                existing.source_id = detail.get('insp_id')
+            if grade:
+                existing.grade = grade
+            insp_id = existing.id
+        else:
+            insp = Inspection(
+                restaurant_id   = restaurant.id,
+                inspection_date = insp_date,
+                source_id       = detail.get('insp_id'),
+                inspection_type = detail.get('type', 'Routine'),
+                score           = score,
+                risk_score      = risk,
+                grade           = grade,
+                result          = score_to_result(score),
+            )
+            db.session.add(insp)
+            db.session.flush()
+            insp_id = insp.id
+
+            old_latest = restaurant.latest_inspection_date
+            if old_latest is None or insp_date > old_latest:
+                restaurant.latest_inspection_date = insp_date
+
+        for v in violations:
+            db.session.add(Violation(
+                inspection_id     = insp_id,
+                violation_code    = v['code'],
+                description       = v['desc'],
+                inspector_notes   = v.get('notes') or None,
+                severity          = v['severity'],
+                corrected_on_site = v['corrected'],
+            ))
+
+        restaurant.ai_summary = None
+        written += 1
+
+    return written
+
+
+RESCRAPE_CHECKPOINT = '/tmp/maricopa_rescrape_checkpoint.pkl'
+
+
+def run_rescrape(app, db, Restaurant, Inspection, Violation,
+                 limit: int = 0, since: date | None = None):
+    """
+    Re-fetch all inspection pages for existing Maricopa restaurants and replace
+    their violations with freshly parsed data. Skips discovery — uses restaurants
+    already in DB.
+
+    Saves a checkpoint file after fetching so a crash during the write phase
+    can be resumed without re-doing the 2-3 hour fetch.
+
+    Fast path (after first rescrape): all inspections have source_id stored,
+    skips ~26k permit page fetches entirely.
+    Slow path (first run): fetches permit pages to discover inspection IDs,
+    then stores source_id for future fast-path runs.
+    """
+    import pickle, os
+
+    print('=== Maricopa: Rescrape (fixing existing data) ===')
+
+    with app.app_context():
+
+        # ── Check for existing checkpoint ─────────────────────────────────────
+        checkpoint = None
+        if os.path.exists(RESCRAPE_CHECKPOINT):
+            print(f'  Found checkpoint file: {RESCRAPE_CHECKPOINT}')
+            with open(RESCRAPE_CHECKPOINT, 'rb') as f:
+                checkpoint = pickle.load(f)
+            print(f'  Resuming from checkpoint: '
+                  f'{sum(len(v) for v in checkpoint["insp_details"].values())} '
+                  f'inspections across {len(checkpoint["insp_details"])} restaurants.')
+
+        if checkpoint:
+            insp_details = checkpoint['insp_details']
+            pid_to_rid   = checkpoint['pid_to_rid']
+            all_pids     = checkpoint['all_pids']
+        else:
+            # ── Load restaurants ──────────────────────────────────────────────
+            restaurants = (
+                Restaurant.query
+                .filter_by(region=REGION)
+                .filter(Restaurant.source_id.isnot(None))
+                .all()
+            )
+            print(f'  {len(restaurants)} Maricopa restaurants in DB.')
+
+            if limit:
+                restaurants = restaurants[:limit]
+                print(f'  (limited to first {limit} for testing)')
+
+            all_pids   = [r.source_id for r in restaurants]
+            pid_to_rid = {r.source_id: r.id for r in restaurants}
+
+            # ── Decide fast vs slow path ──────────────────────────────────────
+            has_source_ids = db.session.execute(
+                db.text(
+                    "SELECT NOT EXISTS ("
+                    "  SELECT 1 FROM inspections i"
+                    "  JOIN restaurants r ON r.id = i.restaurant_id"
+                    "  WHERE r.region = :region AND i.source_id IS NULL"
+                    ")"
+                ),
+                {'region': REGION}
+            ).scalar()
+
+            # Release DB connection before the long fetch phase so the proxy
+            # timeout can't kill the session mid-run
+            db.session.close()
+
+            insp_details: dict[str, list] = {}
+
+            if has_source_ids:
+                # ── Fast path ─────────────────────────────────────────────────
+                print('  Fast path: source_ids known — skipping permit pages.\n')
+                with app.app_context():
+                    rows = db.session.execute(
+                        db.text(
+                            "SELECT i.source_id, i.inspection_date, r.source_id AS permit_id"
+                            " FROM inspections i"
+                            " JOIN restaurants r ON r.id = i.restaurant_id"
+                            " WHERE r.region = :region AND i.source_id IS NOT NULL"
+                            + (" AND i.inspection_date >= :since" if since else "")
+                        ),
+                        {'region': REGION, **({'since': since} if since else {})}
+                    ).fetchall()
+                    db.session.close()
+
+                insp_tasks = [
+                    (row.permit_id, row.source_id,
+                     {'insp_id': row.source_id, 'date': row.inspection_date})
+                    for row in rows
+                ]
+                if limit:
+                    insp_tasks = insp_tasks[:limit * 10]
+
+                print(f'  {len(insp_tasks)} inspection pages to fetch...')
+                done = 0
+                with ThreadPoolExecutor(max_workers=WORKERS) as pool:
+                    futures = {pool.submit(_fetch_insp_page, task): task
+                               for task in insp_tasks}
+                    for future in as_completed(futures):
+                        result = future.result()
+                        done += 1
+                        if result:
+                            pid, detail = result
+                            insp_details.setdefault(pid, []).append(detail)
+                        if done % 1000 == 0 or done == len(insp_tasks):
+                            print(f'  {done}/{len(insp_tasks)} fetched', flush=True)
+
+            else:
+                # ── Slow path ─────────────────────────────────────────────────
+                print('  Slow path: fetching permit pages to discover inspection IDs.\n'
+                      '  Pipelined: inspection fetches start as permits arrive.\n'
+                      '  (source_id stored so future rescrapes use the fast path)\n')
+
+                insp_futures: dict = {}
+                permit_done = 0
+
+                with ThreadPoolExecutor(max_workers=WORKERS) as permit_pool, \
+                     ThreadPoolExecutor(max_workers=WORKERS) as insp_pool:
+
+                    pfutures = {permit_pool.submit(_fetch_permit_page, pid): pid
+                                for pid in all_pids}
+
+                    for future in as_completed(pfutures):
+                        pid, data = future.result()
+                        permit_done += 1
+                        if permit_done % 1000 == 0:
+                            print(f'  {permit_done}/{len(all_pids)} permit pages fetched '
+                                  f'({len(insp_futures)} inspection fetches queued)',
+                                  flush=True)
+                        if not data:
+                            continue
+                        for insp_info in data['inspections']:
+                            insp_id   = insp_info['insp_id']
+                            insp_date = insp_info['date']
+                            if not insp_id.upper().startswith('INSP-'):
+                                continue
+                            if not insp_date:
+                                continue
+                            if since and insp_date < since:
+                                continue
+                            f = insp_pool.submit(_fetch_insp_page, (pid, insp_id, insp_info))
+                            insp_futures[f] = pid
+
+                    print(f'  All {len(all_pids)} permit pages processed. '
+                          f'{len(insp_futures)} inspection pages queued '
+                          f'(many already fetched)...', flush=True)
+
+                    insp_done = 0
+                    for future in as_completed(insp_futures):
+                        result = future.result()
+                        insp_done += 1
+                        if result:
+                            pid, detail = result
+                            insp_details.setdefault(pid, []).append(detail)
+                        if insp_done % 1000 == 0 or insp_done == len(insp_futures):
+                            print(f'  {insp_done}/{len(insp_futures)} inspection pages fetched',
+                                  flush=True)
+
+            # ── Save checkpoint before touching the DB ────────────────────────
+            print(f'  Saving checkpoint to {RESCRAPE_CHECKPOINT}...', flush=True)
+            with open(RESCRAPE_CHECKPOINT, 'wb') as f:
+                pickle.dump({
+                    'insp_details': insp_details,
+                    'pid_to_rid':   pid_to_rid,
+                    'all_pids':     all_pids,
+                }, f)
+            print('  Checkpoint saved. If the write phase crashes, re-run the '
+                  'script and it will resume from here.')
+
+        # ── Write to DB in batches ────────────────────────────────────────────
+        WRITE_BATCH = 500
+        pid_batches = [all_pids[i:i + WRITE_BATCH]
+                       for i in range(0, len(all_pids), WRITE_BATCH)]
+        total_updated = 0
+        for batch_idx, pid_batch in enumerate(pid_batches):
+            rid_batch  = [pid_to_rid[p] for p in pid_batch if p in pid_to_rid]
+            rest_batch = {r.source_id: r for r in
+                          Restaurant.query.filter(Restaurant.id.in_(rid_batch)).all()}
+            batch_updated = 0
+            for pid in pid_batch:
+                restaurant = rest_batch.get(pid)
+                if not restaurant:
+                    continue
+                details = insp_details.get(pid, [])
+                batch_updated += _rescrape_inspections(
+                    restaurant, details, db, Inspection, Violation
+                )
+            db.session.commit()
+            total_updated += batch_updated
+            print(f'  Write batch {batch_idx + 1}/{len(pid_batches)}: '
+                  f'{batch_updated} updated (total: {total_updated})')
+
+        # ── Clean up checkpoint on success ────────────────────────────────────
+        if os.path.exists(RESCRAPE_CHECKPOINT):
+            os.remove(RESCRAPE_CHECKPOINT)
+            print('  Checkpoint deleted.')
+
+        print(f'\nRescrape complete: {total_updated} inspections updated.')
+
+
 # ── Incremental import ────────────────────────────────────────────────────────
 
 def run_incremental(days: int, dry_run: bool, app, db, Restaurant, Inspection, Violation):
@@ -896,11 +1171,12 @@ def run_incremental(days: int, dry_run: bool, app, db, Restaurant, Inspection, V
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
-    full_mode = '--full'    in sys.argv
-    dry_run   = '--dry-run' in sys.argv
-    days      = 7
-    limit     = 0
-    since     = None
+    full_mode     = '--full'     in sys.argv
+    rescrape_mode = '--rescrape' in sys.argv
+    dry_run       = '--dry-run'  in sys.argv
+    days          = 7
+    limit         = 0
+    since         = None
     for arg in sys.argv[1:]:
         if arg.startswith('--days='):
             days = int(arg.split('=', 1)[1])
@@ -917,7 +1193,9 @@ def main():
 
     app = create_app()
 
-    if full_mode:
+    if rescrape_mode:
+        run_rescrape(app, db, Restaurant, Inspection, Violation, limit=limit, since=since)
+    elif full_mode:
         run_full_import(dry_run, app, db, Restaurant, Inspection, Violation, limit=limit, since=since)
     else:
         run_incremental(days, dry_run, app, db, Restaurant, Inspection, Violation)

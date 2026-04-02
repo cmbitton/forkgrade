@@ -1,8 +1,8 @@
 """
-FDA Food Code 2022 — violation severity by code section.
+FDA Food Code 2022 — violation severity by code section and inspection item number.
 
 Shared across all import scripts that use FDA Food Code violation numbering
-(Rhode Island, Houston, Maricopa, etc.).
+(Rhode Island, Houston, Maricopa, Philadelphia, etc.).
 
 Values:
   P  = Priority       → critical (weight 3)
@@ -11,7 +11,27 @@ Values:
 
 Subsection-specific entries (e.g. "3-304.15(B)") take precedence over the
 base code ("3-304.15") when an exact match exists.
+
+PRIORITY_ITEMS / PRIORITY_FOUNDATION_ITEMS
+  Standard FDA inspection form item numbers (used on forms that don't embed
+  P/Pf/C labels directly, e.g. Rhode Island, Philadelphia).
+  Items not in either set → Core (minor).
 """
+
+# FDA Food Code 2022 standard inspection form — item number → severity
+# Source: FDA Form 3-A (Retail Food Establishment Inspection Report)
+PRIORITY_ITEMS            = {4, 6, 8, 9, 11, 12, 13, 15, 16, 17, 18, 19,
+                              20, 21, 22, 23, 24, 26, 27, 28}
+PRIORITY_FOUNDATION_ITEMS = {1, 3, 5, 10, 14, 25, 29}
+
+
+def item_severity(item_number: int) -> str:
+    """Return 'critical', 'major', or 'minor' for an FDA inspection item number."""
+    if item_number in PRIORITY_ITEMS:
+        return 'critical'
+    if item_number in PRIORITY_FOUNDATION_ITEMS:
+        return 'major'
+    return 'minor'
 
 CODE_SEVERITY = {
     "2-101.11": "Pf", "2-102.11": "Pf", "2-102.12": "C",  "2-103.11": "Pf",

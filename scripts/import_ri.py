@@ -76,11 +76,8 @@ def fetch_cuisine(name, address):
         pass
     return None
 
-PRIORITY_ITEMS            = {4, 6, 8, 9, 11, 12, 13, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 26, 27, 28}
-PRIORITY_FOUNDATION_ITEMS = {1, 3, 5, 10, 14, 25, 29}
-
 # FDA Food Code severity data — shared across all importers
-from fda_codes import CODE_SEVERITY, code_weight
+from fda_codes import CODE_SEVERITY, code_weight, PRIORITY_ITEMS, PRIORITY_FOUNDATION_ITEMS, item_severity
 
 RI_MUNICIPALITIES = [
     "Barrington", "Bristol", "Burrillville", "Central Falls", "Charlestown",
@@ -147,11 +144,6 @@ def fetch_html_codes(path):
         return re.findall(r"Violation of Code:.*?([\d]+-[\d]+\.[\d]+(?:\([A-Z]\))?)", html)
     except Exception:
         return []
-
-def item_severity(n):
-    if n in PRIORITY_ITEMS: return "critical"
-    if n in PRIORITY_FOUNDATION_ITEMS: return "major"
-    return "minor"
 
 def parse_violations(vdict, codes):
     out = []

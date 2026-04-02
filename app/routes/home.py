@@ -56,6 +56,16 @@ def about():
     )
 
 
+@home_bp.route('/privacy', strict_slashes=False)
+def privacy():
+    return render_template(
+        'privacy.html',
+        title=f'Privacy Policy | {current_app.config["SITE_NAME"]}',
+        description='Privacy policy for ForkGrade, including information about advertising and cookies.',
+        canonical_url=current_app.config['BASE_URL'] + '/privacy',
+    )
+
+
 @home_bp.route('/methodology', strict_slashes=False)
 def methodology():
     return render_template(
