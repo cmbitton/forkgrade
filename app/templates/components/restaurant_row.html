@@ -26,8 +26,8 @@
 #}
 
 {% macro render_restaurant_row(restaurant, inspection=none, rank=none, show_city=false, show_region=true, hide_mobile_sub=false, mobile_date_only=false) %}
-{%- set tier   = (inspection.score_tier if inspection else none) or restaurant.score_tier -%}
-{%- set score  = (inspection.score if inspection else restaurant.latest_score) -%}
+{%- set tier   = inspection.score_tier if inspection else none -%}
+{%- set score  = inspection.score if inspection else none -%}
 {%- set idate  = inspection.inspection_date if inspection else none -%}
 <a href="/{{ restaurant.region }}/{{ restaurant.slug }}/" class="rl-row">
     <div class="rl-rank">{{ rank if rank is not none else '' }}</div>
