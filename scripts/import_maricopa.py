@@ -96,6 +96,45 @@ _JSON_HEADERS = {
 }
 
 
+# ── Description cleanup ───────────────────────────────────────────────────────
+
+# Maricopa violation descriptions contain boilerplate appended by their portal:
+#   "[FDA violation name]. for a permanent fix... https://... addl notes: [inspector notes]
+#    corrective action: [boilerplate] predefined comment: [boilerplate]"
+# We keep the violation name + any real inspector observation; strip the rest.
+
+_PROMO_RE   = re.compile(r'\s*for a permanent fix\b.*', re.IGNORECASE | re.DOTALL)
+_URL_RE     = re.compile(r'https?://\S+\.?', re.IGNORECASE)
+_ADDL_RE    = re.compile(r'addl notes:\s*(.*?)(?:corrective action:|predefined comment:|$)',
+                          re.IGNORECASE | re.DOTALL)
+_STRIP_RE   = re.compile(r'\s*(?:addl notes:|corrective action:|predefined comment:).*',
+                          re.IGNORECASE | re.DOTALL)
+
+
+def _clean_desc(text: str) -> str:
+    """Strip Maricopa portal boilerplate; keep violation name + real inspector notes."""
+    # Extract real inspector observation before stripping addl notes block
+    notes = ''
+    m = _ADDL_RE.search(text)
+    if m:
+        candidate = m.group(1).strip().rstrip('.')
+        if candidate:
+            notes = candidate
+
+    text = _PROMO_RE.sub('', text)
+    text = _URL_RE.sub('', text)
+    text = _STRIP_RE.sub('', text)
+    base = re.sub(r'\s+', ' ', text).strip().rstrip('.')
+
+    if notes:
+        result = f'{base}. {notes[0].upper()}{notes[1:]}'
+    else:
+        result = base
+
+    result = re.sub(r'\s+', ' ', result).strip()
+    return (result[0].upper() + result[1:]) if result else text
+
+
 # ── Severity ──────────────────────────────────────────────────────────────────
 
 _SEV_WEIGHTS = {'critical': 3, 'major': 2, 'minor': 1}
@@ -544,10 +583,12 @@ def parse_inspection_page(html: str, permit_id: str, insp_id: str) -> dict | Non
 
         if not desc:
             desc = code
+        else:
+            desc = _clean_desc(desc)
 
         violations.append({
             'code':      code,
-            'desc':      desc.capitalize(),
+            'desc':      desc,
             'severity':  severity,
             'corrected': corrected,
         })
