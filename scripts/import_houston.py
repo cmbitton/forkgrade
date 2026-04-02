@@ -47,6 +47,24 @@ if not os.environ.get('DATABASE_URL'):
     from dotenv import load_dotenv
     load_dotenv()
 
+# FDA Food Code severity map (shared across all importers).
+# Keys are FDA Food Code section numbers; values are 'P', 'Pf', or 'C'.
+try:
+    sys.path.insert(0, str(Path(__file__).parent))
+    from fda_codes import CODE_SEVERITY as _FDA_CODE_SEVERITY
+except Exception:
+    _FDA_CODE_SEVERITY = {}
+
+_PF_TO_SEVERITY = {'P': 'critical', 'Pf': 'major', 'C': 'minor'}
+
+# FDA codes that appear in Houston inspections but are not in RI's CODE_SEVERITY
+# (Chapter 8 = Compliance/Enforcement; not cited by RI inspectors).
+_HOUSTON_FDA_EXTRAS = {
+    '8-301.11': 'P',   # operating without a valid permit — Priority (critical)
+    '8-302.11': 'Pf',  # permit application requirements — Priority Foundation
+    '8-304.11': 'Pf',  # permit not posted — Priority Foundation
+}
+
 BASE_URL   = 'https://houston-tx.healthinspections.us/media'
 SEARCH_URL = f'{BASE_URL}/search.cfm'
 REGION     = 'houston'
@@ -134,6 +152,7 @@ _COH_SEVERITY: dict[str, str] = {
     '20-19(b)':        'critical',  # operating non-conforming establishment
     '20-20(g)':        'critical',  # resumed operation before conditions resolved
     '20-21.02(c)':     'critical',  # failed to discontinue operation in emergency
+    '20-21.11(b)':     'critical',  # three-compartment sink without hot/cold running water
     '20-21.12(a)':     'critical',  # no three-compartment sink for manual washing
     '20-21.15(a)':     'critical',  # failure to provide enough potable water
     '20-21.15(c)':     'critical',  # failure to provide water at required temps
@@ -155,6 +174,12 @@ _COH_SEVERITY: dict[str, str] = {
     '20-21.10(f)':     'minor',   # indicating thermometers
     '20-21.10(g)':     'minor',   # nonfood-contact surfaces
     '20-21.10(h)':     'minor',   # ventilation hood
+    '20-21.10(a)(04)': 'major',   # mollusk/crustacean shells reused as containers — Serious
+    '20-21.10(a)(05)': 'major',   # single-service articles reused — Serious
+    '20-21.10(a)(06)': 'major',   # canvas/cloth used as food-contact surface — Serious
+    '20-21.10(a)(08)': 'major',   # single-use glove misuse — Serious
+    '20-21.10(b)(02)': 'major',   # equipment with unsafe lubricants — Serious
+    '20-21.10(b)(03)': 'major',   # beverage tubing not properly maintained — Serious
     '20-21.10(i)':     'major',   # existing equipment not in good repair/sanitary — Serious
     '20-21.10(j)':     'major',   # equipment under sewer/water lines — Serious
     '20-21.10(k)':     'minor',   # table/counter mounted equipment clearance
@@ -181,6 +206,26 @@ _COH_SEVERITY: dict[str, str] = {
 }
 
 
+def _fda_severity(code: str) -> str:
+    """
+    Severity for an FDA Food Code violation (e.g. '3-302.11(A)(1)(a)').
+
+    Strips parenthetical subitem groups one at a time from right to left until
+    a match is found in CODE_SEVERITY or the Houston-specific extras dict.
+    e.g. '3-302.11(A)(1)(a)' → '3-302.11(A)(1)' → '3-302.11(A)' → '3-302.11' → 'P' → critical
+    """
+    current = code
+    while True:
+        pf = _HOUSTON_FDA_EXTRAS.get(current) or _FDA_CODE_SEVERITY.get(current)
+        if pf:
+            return _PF_TO_SEVERITY.get(pf, 'minor')
+        stripped = re.sub(r'\([^)]+\)\s*$', '', current).strip()
+        if stripped == current:
+            break
+        current = stripped
+    return 'minor'
+
+
 def _coh_severity(code: str) -> str:
     """
     Return the severity for a City of Houston ordinance code (COH-xx-xx).
@@ -192,17 +237,26 @@ def _coh_severity(code: str) -> str:
       4. Fall back to section-level default (strip from first '(' char).
       5. If still not found, return 'minor'.
     """
-    rest = code[4:]   # strip 'COH-'
+    rest = code[4:].lower()   # strip 'COH-' and normalise case for dict lookup
+    # Normalise leading zeros in section numbers: '20-001' → '20-1', '40-009' → '40-9'
+    rest = re.sub(r'(?<=-)0+(\d)', r'\1', rest)
     if not (rest.startswith('20-') or rest.startswith('40-')):
         return 'minor'
-    # 1. Exact subitem match
+    # 1. Exact match (handles subitems like '20-21.11(b)')
     sev = _COH_SEVERITY.get(rest)
     if sev:
         return sev
-    # 2. Section-level default (strip from first '(')
-    paren = rest.find('(')
-    if paren > 0:
-        sev = _COH_SEVERITY.get(rest[:paren])
+    # 2. For nested subitems like '20-21.10(a)(05)', try stripping the last () group
+    #    to get the parent subitem '20-21.10(a)' before falling to section default.
+    first_paren = rest.find('(')
+    last_paren  = rest.rfind('(')
+    if first_paren > 0 and last_paren > first_paren:
+        sev = _COH_SEVERITY.get(rest[:last_paren])
+        if sev:
+            return sev
+    # 3. Section-level default (strip from first '(')
+    if first_paren > 0:
+        sev = _COH_SEVERITY.get(rest[:first_paren])
         if sev:
             return sev
     return 'minor'
@@ -452,8 +506,7 @@ def parse_detail(html: str, facility_id: str) -> dict | None:
     # following status cell.
 
     violations = []
-    seen_codes   = set()
-    current_category = ''   # tracks the most recent category-header tooltip
+    seen_codes = set()
 
     # Split the HTML into segments at each violation link so we can check
     # what status follows each one.
@@ -463,10 +516,10 @@ def parse_detail(html: str, facility_id: str) -> dict | None:
         tooltip = m.group(1).strip()   # full ddrivetip text
         code    = m.group(2).strip().rstrip('.')
 
-        # Category-header rows have an empty code — update current category and skip.
-        # e.g. "Foodborne Illness Risk Factors and Public Health Interventions: 13"
+        # Empty-code rows are standalone category-reference entries
+        # (e.g. "Foodborne Illness Risk Factors: 13") — not section headers.
+        # Skip them; they don't govern the severity of subsequent violations.
         if not code:
-            current_category = tooltip.lower()
             continue
         if code in seen_codes:
             continue
@@ -481,14 +534,17 @@ def parse_detail(html: str, facility_id: str) -> dict | None:
         if not desc:
             desc = code
 
-        # Severity: COH-20/40-xxx → lookup table; FDA codes under "Foodborne
-        # Illness Risk Factors" category → critical; everything else → minor.
-        if code.upper().startswith('COH-'):
-            severity = _coh_severity(code.upper())
-        elif 'foodborne illness risk factors' in current_category:
-            severity = 'critical'
-        else:
+        # Severity:
+        #   COH-20/40-xxx → Houston ordinance lookup table
+        #   TAC-xxx       → Texas administrative/posting rules → always minor
+        #   anything else → FDA Food Code → CODE_SEVERITY dict
+        cu = code.upper()
+        if cu.startswith('COH-'):
+            severity = _coh_severity(cu)
+        elif cu.startswith('TAC-'):
             severity = 'minor'
+        else:
+            severity = _fda_severity(code)
 
         # Corrected on site: look in the HTML between this match and the next
         end_pos   = segments[idx + 1].start() if idx + 1 < len(segments) else len(html)
@@ -666,16 +722,34 @@ def write_to_db(records: list, app, db, Restaurant, Inspection, Violation):
                 existing[fid] = restaurant
                 new_r += 1
 
-            # ── Skip duplicate inspections ────────────────────────────────────
-            if Inspection.query.filter_by(
-                restaurant_id=restaurant.id, inspection_date=insp_date
-            ).first():
-                skipped += 1
-                continue
-
             # ── Score and write inspection ────────────────────────────────────
             violations = rec.get('violations', [])
             risk, score = compute_score(violations)
+
+            # ── Skip / replace duplicate inspections ──────────────────────────
+            # If two inspections share a date (routine + reinspection), keep the
+            # one with the higher risk score so we don't silently drop violations.
+            existing_insp = Inspection.query.filter_by(
+                restaurant_id=restaurant.id, inspection_date=insp_date
+            ).first()
+            if existing_insp:
+                if risk > (existing_insp.risk_score or 0):
+                    # Replace the existing zero/low-violation record
+                    Violation.query.filter_by(inspection_id=existing_insp.id).delete()
+                    existing_insp.score           = score
+                    existing_insp.risk_score      = risk
+                    existing_insp.result          = score_to_result(score)
+                    existing_insp.inspection_type = rec.get('type') or 'Routine'
+                    for v in violations:
+                        db.session.add(Violation(
+                            inspection_id     = existing_insp.id,
+                            violation_code    = v['code'],
+                            description       = v['desc'],
+                            severity          = v['severity'],
+                            corrected_on_site = v['corrected'],
+                        ))
+                skipped += 1
+                continue
 
             insp = Inspection(
                 restaurant_id   = restaurant.id,

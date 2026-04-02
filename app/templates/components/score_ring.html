@@ -10,10 +10,10 @@
         {% if tier == 'low' %}Low Risk{% elif tier == 'medium' %}Medium Risk{% else %}High Risk{% endif %}
     </span>
     {% endif %}
-    {% if grade in ('A', 'B', 'C') %}
-    <span class="nyc-grade-badge nyc-grade-{{ grade }}">NYC Grade: {{ grade }}</span>
+    {% if grade in ('A', 'B', 'C', 'D') %}
+    <span class="nyc-grade-badge nyc-grade-{{ grade }}">{% if region == 'nyc' %}NYC {% endif %}Grade: {{ grade }}</span>
     {% elif grade in ('Z', 'N', 'P') %}
-    <span class="nyc-grade-badge nyc-grade-Z">NYC Grade: Pending</span>
+    <span class="nyc-grade-badge nyc-grade-Z">{% if region == 'nyc' %}NYC {% endif %}Grade: Pending</span>
     {% endif %}
 </div>
 {% endmacro %}

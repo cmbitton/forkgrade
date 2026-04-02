@@ -459,7 +459,11 @@ def region_sub(region, path_slug):
                         Inspection.inspection_date == Restaurant.latest_inspection_date,
                     )
                 )
-                .filter(Restaurant.region == region, Restaurant.city == city_name)
+                .filter(
+                    Restaurant.region == region,
+                    Restaurant.city == city_name,
+                    Restaurant.latest_inspection_date.isnot(None),
+                )
             )
             if sort == 'score':
                 q = q.order_by(
