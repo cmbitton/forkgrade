@@ -21,6 +21,11 @@
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     {% block extra_head %}{% endblock %}
+    <!-- Google AdSense -->
+    <meta name="google-adsense-account" content="ca-pub-8741538256400039">
+    {% if 'Googlebot' not in request.user_agent.string %}
+    <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-8741538256400039" crossorigin="anonymous"></script>
+    {% endif %}
     <!-- Google tag (gtag.js) -->
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-PWJ78F72ZF"></script>
     <script>
@@ -37,5 +42,6 @@
 {% include 'components/footer.html' %}
 {% block structured_data %}{% endblock %}
 {% block scripts %}{% endblock %}
+{% block page_ads %}{% endblock %}
 </body>
 </html>

@@ -1,6 +1,6 @@
 from datetime import date, timedelta
 
-from flask import Blueprint, render_template, request, current_app
+from flask import Blueprint, render_template, request, current_app, Response
 from sqlalchemy import func
 from app.db import db, cache
 from app.models.restaurant import Restaurant
@@ -53,6 +53,14 @@ def about():
         title=f'About | {current_app.config["SITE_NAME"]}',
         description='ForkGrade is a free public tool that aggregates food establishment health inspection data from government sources.',
         canonical_url=current_app.config['BASE_URL'] + '/about',
+    )
+
+
+@home_bp.route('/ads.txt')
+def ads_txt():
+    return Response(
+        'google.com, pub-8741538256400039, DIRECT, f08c47fec0942fa0\n',
+        mimetype='text/plain'
     )
 
 

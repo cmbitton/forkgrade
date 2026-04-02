@@ -1,0 +1,18 @@
+{% macro render_ad(ad_slot, lazy=false) %}
+{% if 'Googlebot' not in request.user_agent.string %}
+<div class="ad-container">
+    <div class="ad-label">Advertisement</div>
+    <div class="ad-slot">
+        <ins class="adsbygoogle{% if lazy %} ad-lazy{% endif %}"
+             style="display:block"
+             data-ad-client="ca-pub-8741538256400039"
+             data-ad-slot="{{ ad_slot }}"
+             data-ad-format="auto"
+             data-full-width-responsive="true"></ins>
+        {% if not lazy %}
+        <script>(adsbygoogle = window.adsbygoogle || []).push({});</script>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+{% endmacro %}

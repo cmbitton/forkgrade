@@ -1286,3 +1286,68 @@ nav {
 .nyc-grade-B { background: #fef9e6; color: #7a5c00; }
 .nyc-grade-C { background: #fdecea; color: #8b2a2a; }
 .nyc-grade-Z, .nyc-grade-N, .nyc-grade-P { background: #f0f0f0; color: var(--text-muted); }
+
+/* ── Ad Units ──────────────────────────────────────────────────────────────── */
+.ad-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    margin: 16px 0;
+    min-height: 100px;
+    width: 100%;
+}
+.ad-container .ad-label {
+    font-size: 10px;
+    color: #999;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+}
+.ad-container .ad-slot {
+    min-height: 100px;
+    width: 100%;
+    max-width: 728px;
+}
+@media (max-width: 768px) {
+    .ad-container .ad-slot {
+        min-height: 100px;
+        max-width: 336px;
+    }
+}
+
+/* Sticky anchor ad — mobile only */
+.anchor-ad {
+    display: none;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 1000;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.12);
+    padding: 4px 4px 0;
+    min-height: 60px;
+}
+@media (max-width: 768px) {
+    .anchor-ad { display: block; }
+}
+.anchor-ad-close {
+    position: absolute;
+    top: 4px;
+    right: 6px;
+    background: rgba(0, 0, 0, 0.08);
+    border: none;
+    border-radius: 50%;
+    width: 20px;
+    height: 20px;
+    font-size: 10px;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-secondary);
+    z-index: 1001;
+}

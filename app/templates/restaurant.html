@@ -4,6 +4,7 @@
 {% from 'components/violation_row.html' import render_violation_row %}
 {% from 'components/inspection_timeline.html' import render_timeline_item %}
 {% from 'components/nearby_restaurants.html' import render_nearby %}
+{% from 'components/ad_unit.html' import render_ad %}
 
 {% block breadcrumb %}
 {{ render_breadcrumb(breadcrumbs) }}
@@ -88,6 +89,9 @@
         </div>
     </div>
 
+    <!-- AD #1: in-content, between stats and inspection history -->
+    {{ render_ad('TODO_SLOT_ID_1') }}
+
     <!-- INSPECTION TIMELINE -->
     {% if inspections %}
     <div class="timeline-section">
@@ -170,6 +174,9 @@
     </div>
     {% endif %}
 
+<!-- AD #2: in-content, between violations and nearby restaurants (lazy) -->
+    {{ render_ad('TODO_SLOT_ID_2', lazy=true) }}
+
 <!-- NEARBY RESTAURANTS -->
     {{ render_nearby(nearby, restaurant.region) }}
 
@@ -197,6 +204,38 @@
     </div>
 
 </div>
+{% endblock %}
+
+{% block page_ads %}
+{% if 'Googlebot' not in request.user_agent.string %}
+<!-- Anchor ad — mobile only, shown via CSS -->
+<div id="anchor-ad" class="anchor-ad">
+    <button class="anchor-ad-close" onclick="document.getElementById('anchor-ad').style.display='none'" aria-label="Close ad">✕</button>
+    <ins class="adsbygoogle"
+         style="display:block"
+         data-ad-client="ca-pub-8741538256400039"
+         data-ad-slot="TODO_ANCHOR_SLOT_ID"
+         data-ad-format="auto"
+         data-full-width-responsive="true"></ins>
+    <script>(adsbygoogle = window.adsbygoogle || []).push({});</script>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Lazy-load ad units that are below the fold
+document.querySelectorAll('.ad-lazy').forEach(function(el) {
+    new IntersectionObserver(function(entries, obs) {
+        entries.forEach(function(entry) {
+            if (entry.isIntersecting) {
+                (adsbygoogle = window.adsbygoogle || []).push({});
+                obs.unobserve(entry.target);
+            }
+        });
+    }, { rootMargin: '200px' }).observe(el);
+});
+</script>
 {% endblock %}
 
 {% block structured_data %}
