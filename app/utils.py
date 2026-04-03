@@ -1,5 +1,6 @@
 """Shared utility helpers."""
 
+from sqlalchemy import func
 from app.db import db
 from app.models.restaurant import Restaurant
 from app.models.inspection import Inspection
@@ -29,7 +30,11 @@ def search_restaurants(q, region=None, sort='date', page=1, per_page=25):
             Inspection.restaurant_id == Restaurant.id,
             Inspection.inspection_date == Restaurant.latest_inspection_date,
         ))
-        .filter(Restaurant.name.ilike(f'%{q}%'))
+        .filter(
+            func.regexp_replace(Restaurant.name, r'[^a-zA-Z0-9 ]', '', 'g').ilike(
+                f"%{q.replace(chr(39), '').replace('-', ' ')}%"
+            )
+        )
     )
 
     if region:
