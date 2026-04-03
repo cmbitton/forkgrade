@@ -40,8 +40,8 @@ client = genai.Client(api_key=GEMINI_API_KEY)
 SYSTEM_PROMPT = """\
 You write brief, neutral summaries for a public health inspection website.
 Rules:
-- 2-3 sentences, factual, based only on the data provided
-- Always include the facility name, city, and state naturally in the text
+- 3 sentences, factual, based only on the data provided
+- Always include the facility name, city, state, and street address naturally in the text
 - Do not use words like "pass", "fail", "excellent", "terrible", or make moral judgements
 - Do not speculate about causes of violations
 - Write in third person
@@ -58,9 +58,10 @@ def build_prompt(restaurant, inspections):
     total  = len(inspections)
 
     location = f"{restaurant.city}, {restaurant.state}" if restaurant.city else restaurant.state
+    address = f"{restaurant.address}, {location}" if restaurant.address else location
     lines = [
         f"Facility: {restaurant.name}",
-        f"Location: {location}",
+        f"Address: {address}",
     ]
     if restaurant.cuisine_type:
         lines.append(f"Type: {restaurant.cuisine_type}")
@@ -102,7 +103,7 @@ def build_prompt(restaurant, inspections):
             dominant = max(tier_counts, key=tier_counts.get)
             lines.append(f"Historical pattern: mostly {dominant}-risk across {len(scored)} scored inspections")
 
-    lines.append("\nWrite a 2-3 sentence summary for this facility's inspection record.")
+    lines.append("\nWrite a 3 sentence summary for this facility's inspection record. Include the street address naturally in the text.")
     return '\n'.join(lines)
 
 
@@ -111,11 +112,11 @@ def generate_summary(restaurant_id, prompt, retries=4):
     for attempt in range(retries):
         try:
             resp = client.models.generate_content(
-                model='gemini-2.0-flash-lite',
+                model='gemini-3.1-flash-lite-preview',
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     system_instruction=SYSTEM_PROMPT,
-                    max_output_tokens=200,
+                    max_output_tokens=300,
                     temperature=0.4,
                 ),
             )
