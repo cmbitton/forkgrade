@@ -12,6 +12,7 @@ Parallel: batches of restaurants are fetched from DB, summaries generated concur
 then committed together. Safe to interrupt and resume (already-saved summaries are skipped).
 """
 
+import logging
 import os
 import sys
 import time
@@ -19,6 +20,9 @@ import argparse
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+
+logging.getLogger('httpx').setLevel(logging.WARNING)
+logging.getLogger('google_genai').setLevel(logging.WARNING)
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
