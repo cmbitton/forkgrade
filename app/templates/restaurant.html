@@ -4,7 +4,7 @@
 {% from 'components/violation_row.html' import render_violation_row %}
 {% from 'components/inspection_timeline.html' import render_timeline_item %}
 {% from 'components/nearby_restaurants.html' import render_nearby %}
-{% from 'components/ad_unit.html' import render_ad %}
+{#% from 'components/ad_unit.html' import render_ad %#}
 
 {% block breadcrumb %}
 {{ render_breadcrumb(breadcrumbs) }}
@@ -89,8 +89,8 @@
         </div>
     </div>
 
-    <!-- AD #1: in-content, between stats and inspection history -->
-    {{ render_ad('5994343147') }}
+    {#- AD #1: in-content, between stats and inspection history -#}
+    {#- {{ render_ad('5994343147') }} -#}
 
     <!-- INSPECTION TIMELINE -->
     {% if inspections %}
@@ -174,8 +174,8 @@
     </div>
     {% endif %}
 
-<!-- AD #2: in-content, between violations and nearby restaurants (lazy) -->
-    {{ render_ad('2877225210', lazy=true) }}
+{#- AD #2: in-content, between violations and nearby restaurants (lazy) -#}
+    {#- {{ render_ad('2877225210', lazy=true) }} -#}
 
 <!-- NEARBY RESTAURANTS -->
     {{ render_nearby(nearby, restaurant.region) }}
@@ -206,6 +206,7 @@
 </div>
 {% endblock %}
 
+{#
 {% block page_ads %}
 {% if 'Googlebot' not in request.user_agent.string %}
 <!-- Anchor ad — mobile only, shown via CSS -->
@@ -221,7 +222,9 @@
 </div>
 {% endif %}
 {% endblock %}
+#}
 
+{#
 {% block scripts %}
 <script>
 // Lazy-load ad units that are below the fold
@@ -237,6 +240,7 @@ document.querySelectorAll('.ad-lazy').forEach(function(el) {
 });
 </script>
 {% endblock %}
+#}
 
 {% block structured_data %}
 <script type="application/ld+json">

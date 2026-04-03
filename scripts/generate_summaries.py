@@ -4,15 +4,20 @@ Generate AI summaries for all restaurants missing one.
 
 Usage:
     GEMINI_API_KEY=your-key nat-health/bin/python3 scripts/generate_summaries.py
-    GEMINI_API_KEY=your-key nat-health/bin/python3 scripts/generate_summaries.py --limit 50
+    GEMINI_API_KEY=your-key nat-health/bin/python3 scripts/generate_summaries.py --limit 500
+    GEMINI_API_KEY=your-key nat-health/bin/python3 scripts/generate_summaries.py --region houston
+    GEMINI_API_KEY=your-key nat-health/bin/python3 scripts/generate_summaries.py --workers 80
 
-Checkpoints to DB every 100 restaurants. Safe to interrupt and resume.
+Parallel: batches of restaurants are fetched from DB, summaries generated concurrently,
+then committed together. Safe to interrupt and resume (already-saved summaries are skipped).
 """
 
 import os
 import sys
 import time
 import argparse
+from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -43,10 +48,14 @@ Rules:
 - Use natural prose, not data-report language\
 """
 
+DEFAULT_WORKERS   = 50
+DB_BATCH_SIZE     = 500   # restaurants loaded from DB per batch
+COMMIT_EVERY      = 100   # commit to DB every N summaries generated
+
 
 def build_prompt(restaurant, inspections):
     latest = inspections[0] if inspections else None
-    total = len(inspections)
+    total  = len(inspections)
 
     location = f"{restaurant.city}, {restaurant.state}" if restaurant.city else restaurant.state
     lines = [
@@ -76,19 +85,15 @@ def build_prompt(restaurant, inspections):
             if major: parts.append(f"{major} major violation{'s' if major > 1 else ''}")
             if minor: parts.append(f"{minor} minor violation{'s' if minor > 1 else ''}")
             lines.append(f"Violations in latest inspection: {', '.join(parts)}")
-
-            # Include up to 3 violation descriptions for context
             descs = [v.description for v in violations if v.description][:3]
             if descs:
                 lines.append("Notable violations: " + "; ".join(descs))
         else:
             lines.append("No violations recorded in latest inspection.")
 
-    # Historical pattern across all inspections
     if total > 1:
         scored = [i for i in inspections if i.risk_score is not None]
         if scored:
-            avg_risk = sum(i.risk_score for i in scored) / len(scored)
             tier_counts = {'low': 0, 'medium': 0, 'high': 0}
             for i in scored:
                 t = i.score_tier
@@ -101,12 +106,12 @@ def build_prompt(restaurant, inspections):
     return '\n'.join(lines)
 
 
-def generate_summary(restaurant, inspections, retries=3):
-    prompt = build_prompt(restaurant, inspections)
+def generate_summary(restaurant_id, prompt, retries=4):
+    """Thread-safe: only calls Gemini, no DB access."""
     for attempt in range(retries):
         try:
             resp = client.models.generate_content(
-                model='gemini-3.1-flash-lite-preview',
+                model='gemini-2.0-flash-lite',
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     system_instruction=SYSTEM_PROMPT,
@@ -114,69 +119,106 @@ def generate_summary(restaurant, inspections, retries=3):
                     temperature=0.4,
                 ),
             )
-            return resp.text.strip()
+            return restaurant_id, resp.text.strip()
         except Exception as e:
+            err = str(e)
             if attempt < retries - 1:
-                wait = 2 ** attempt
-                print(f"    Retry {attempt + 1} after error: {e} (waiting {wait}s)")
+                wait = min(2 ** attempt, 16)
+                if '429' in err or 'quota' in err.lower():
+                    wait = max(wait, 5)
                 time.sleep(wait)
             else:
-                print(f"    Failed after {retries} attempts: {e}")
-                return None
+                return restaurant_id, None
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--limit', type=int, default=None,
-                        help='Max number of restaurants to process (default: all)')
+    parser.add_argument('--limit',   type=int,   default=None,  help='Max restaurants to process')
+    parser.add_argument('--region',  type=str,   default=None,  help='Only process this region')
+    parser.add_argument('--workers', type=int,   default=DEFAULT_WORKERS, help='Parallel API workers')
     args = parser.parse_args()
 
     app = create_app()
     with app.app_context():
-        query = (
-            Restaurant.query
-            .filter(Restaurant.ai_summary.is_(None))
-            .order_by(Restaurant.id)
-        )
+        q = Restaurant.query.filter(Restaurant.ai_summary.is_(None)).order_by(Restaurant.id)
+        if args.region:
+            q = q.filter(Restaurant.region == args.region)
         if args.limit:
-            query = query.limit(args.limit)
-        restaurants = query.all()
+            q = q.limit(args.limit)
 
+        restaurants = q.all()
         total = len(restaurants)
-        print(f"Found {total} restaurants without summaries\n")
+        print(f"Found {total} restaurants without summaries")
+        print(f"Running with {args.workers} parallel workers\n")
 
-        done = 0
-        skipped = 0
+        done = skipped = 0
+        pending_saves: dict[int, str] = {}  # restaurant_id → summary
+        start_time = time.time()
 
-        for i, restaurant in enumerate(restaurants, 1):
-            inspections = (
+        # Process in DB batches to avoid loading all inspections at once
+        for batch_start in range(0, total, DB_BATCH_SIZE):
+            batch = restaurants[batch_start:batch_start + DB_BATCH_SIZE]
+            batch_ids = [r.id for r in batch]
+
+            # Bulk-load all inspections + violations for this batch in 1 query
+            all_inspections = (
                 Inspection.query
                 .options(selectinload(Inspection.violations))
-                .filter_by(restaurant_id=restaurant.id)
-                .order_by(Inspection.inspection_date.desc())
+                .filter(Inspection.restaurant_id.in_(batch_ids))
+                .order_by(Inspection.restaurant_id, Inspection.inspection_date.desc())
                 .all()
             )
+            insp_by_rid: dict[int, list] = defaultdict(list)
+            for insp in all_inspections:
+                insp_by_rid[insp.restaurant_id].append(insp)
 
-            if not inspections:
-                skipped += 1
-                continue
+            # Build prompts (main thread, no IO)
+            work: list[tuple[int, str]] = []
+            for r in batch:
+                inspections = insp_by_rid.get(r.id, [])
+                if not inspections:
+                    skipped += 1
+                    continue
+                work.append((r.id, build_prompt(r, inspections)))
 
-            summary = generate_summary(restaurant, inspections)
-            if summary:
-                restaurant.ai_summary = summary
-                done += 1
-            else:
-                skipped += 1
+            # Parallel API calls
+            rid_to_restaurant = {r.id: r for r in batch}
+            with ThreadPoolExecutor(max_workers=args.workers) as pool:
+                futures = {
+                    pool.submit(generate_summary, rid, prompt): rid
+                    for rid, prompt in work
+                }
+                for future in as_completed(futures):
+                    rid, summary = future.result()
+                    if summary:
+                        pending_saves[rid] = summary
+                        done += 1
+                    else:
+                        skipped += 1
 
-            # Small delay to avoid rate limits
-            time.sleep(0.1)
+                    completed = done + skipped
+                    if completed % COMMIT_EVERY == 0 and pending_saves:
+                        for save_rid, save_summary in pending_saves.items():
+                            rid_to_restaurant[save_rid].ai_summary = save_summary
+                        db.session.commit()
+                        elapsed = time.time() - start_time
+                        rate = done / elapsed * 60 if elapsed > 0 else 0
+                        print(f"  [{batch_start + completed}/{total}] "
+                              f"{done} generated, {skipped} skipped — "
+                              f"{rate:.0f}/min")
+                        pending_saves.clear()
 
-            if i % 100 == 0 or i == total:
+            # Commit remaining from this batch
+            if pending_saves:
+                for save_rid, save_summary in pending_saves.items():
+                    rid_to_restaurant[save_rid].ai_summary = save_summary
                 db.session.commit()
-                print(f"  [{i}/{total}] {done} generated, {skipped} skipped")
+                pending_saves.clear()
 
-        db.session.commit()
-        print(f"\nDone. {done} summaries generated, {skipped} skipped.")
+        elapsed = time.time() - start_time
+        rate = done / elapsed * 60 if elapsed > 0 else 0
+        print(f"\nDone. {done} summaries generated, {skipped} skipped — "
+              f"avg {rate:.0f}/min over {elapsed/60:.1f} min.")
 
 
 if __name__ == '__main__':
