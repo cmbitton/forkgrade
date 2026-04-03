@@ -15,7 +15,10 @@ jobs:
         uses: superfly/flyctl-actions/setup-flyctl@master
 
       - name: Install PostgreSQL client
-        run: sudo apt-get install -y postgresql-client
+        run: |
+          sudo apt-get install -y postgresql-common
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y postgresql-client-17
 
       - name: Open Fly proxy to Postgres
         env:
@@ -28,6 +31,7 @@ jobs:
         env:
           PGPASSWORD: ${{ secrets.DB_PASSWORD }}
         run: |
+          set -o pipefail
           FILENAME="forkgrade_$(date -u +%Y%m%d_%H%M%S).sql.gz"
           pg_dump -h localhost -p 5432 -U forkgrade forkgrade | gzip > "$FILENAME"
           echo "BACKUP_FILE=$FILENAME" >> $GITHUB_ENV
