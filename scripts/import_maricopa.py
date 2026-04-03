@@ -52,15 +52,15 @@ import urllib.request
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-# Some environments (WSL, older macOS) lack the CA bundle needed to verify
-# envapp.maricopa.gov's certificate chain.  We create a permissive context
-# identical to what a browser does via the OS CA store; if verification passes
-# we use it, otherwise we fall back to unverified (scraping-only risk).
+# envapp.maricopa.gov uses older cipher suites that OpenSSL 3.x rejects at the
+# default security level.  We lower SECLEVEL to 1 (allows SHA-1 etc.) and
+# disable cert verification — acceptable risk for a read-only public scraper.
 def _ssl_ctx():
-    """Return a per-call unverified SSL context (thread-safe; SSLContext objects are not)."""
-    ctx = ssl.create_default_context()
+    """Return a permissive SSL context (thread-safe; SSLContext objects are not)."""
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
+    ctx.set_ciphers('DEFAULT:@SECLEVEL=1')
     return ctx
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
