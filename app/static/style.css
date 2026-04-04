@@ -1018,6 +1018,25 @@ nav {
 }
 .all-cities-toggle:checked ~ .all-cities-content { display: block; }
 
+.city-filter-wrap {
+    margin-bottom: 16px;
+}
+.city-filter-input {
+    width: 100%;
+    max-width: 320px;
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 14px;
+    font-family: inherit;
+    background: var(--surface);
+    color: var(--text-primary);
+    outline: none;
+}
+.city-filter-input:focus {
+    border-color: var(--accent);
+}
+
 /* ===================== MOBILE: ALL CITIES — CHECKBOX COLLAPSE ===================== */
 /* The input is always visually hidden; the label acts as the toggle on mobile only */
 .mobile-cities-toggle { display: none; }

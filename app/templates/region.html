@@ -82,7 +82,12 @@
         <div class="section-header" style="margin-top: 0;">
             <h2>All Cities &amp; Neighborhoods</h2>
         </div>
-        <div class="neighborhood-grid">
+        {% if neighborhoods|length > 25 %}
+        <div class="city-filter-wrap">
+            <input type="text" id="city-filter" class="city-filter-input" placeholder="Filter cities…" autocomplete="off">
+        </div>
+        {% endif %}
+        <div class="neighborhood-grid" id="all-cities-grid">
             {% for nbhd in neighborhoods %}
             <a href="/{{ region }}/{{ nbhd.city_slug }}/" class="neighborhood-card">
                 <h3>{{ nbhd.city or 'Unknown' }}</h3>
@@ -90,7 +95,29 @@
             </a>
             {% endfor %}
         </div>
+        <p id="city-filter-empty" style="display:none; color:var(--text-secondary); font-size:14px; padding: 8px 0;">No cities match.</p>
     </div>
+    {% endif %}
+
+    {% if neighborhoods|length > 25 %}
+    <script>
+    (function() {
+        var input = document.getElementById('city-filter');
+        if (!input) return;
+        var grid  = document.getElementById('all-cities-grid');
+        var empty = document.getElementById('city-filter-empty');
+        input.addEventListener('input', function() {
+            var q = this.value.toLowerCase().trim();
+            var visible = 0;
+            grid.querySelectorAll('.neighborhood-card').forEach(function(card) {
+                var match = !q || card.querySelector('h3').textContent.toLowerCase().indexOf(q) !== -1;
+                card.style.display = match ? '' : 'none';
+                if (match) visible++;
+            });
+            empty.style.display = visible === 0 ? 'block' : 'none';
+        });
+    })();
+    </script>
     {% endif %}
 
     {% if bottom_restaurants %}
