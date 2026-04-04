@@ -25,6 +25,7 @@ Usage:
   python3 scripts/import_florida.py --dry-run
 """
 
+import asyncio
 import csv
 import io
 import math
@@ -34,7 +35,6 @@ import sys
 import time
 import urllib.error
 import urllib.request
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -50,23 +50,22 @@ CURRENT_URL  = ('https://www2.myfloridalicense.com'
                 '/sto/file_download/extracts/{n}fdinspi.csv')
 
 # Historical XLSX files (FY YYZZ = fiscal year 20YY-20ZZ).
-# 2324 lives at a different path than the others.
+# 2324 lives at a different path. 2425 is not archived yet (current FY) — skip it.
 HISTORICAL_FILES = [
     ('https://www2.myfloridalicense.com/sto/file_download/hr/fdinspi_2223.xlsx',
      'statewide FY 22-23'),
     ('https://www2.myfloridalicense.com/hr/inspections/fdinspi_2324.xlsx',
      'statewide FY 23-24'),
-    ('https://www2.myfloridalicense.com/sto/file_download/hr/fdinspi_2425.xlsx',
+    ('https://www2.myfloridalicense.com/hr/inspections/fdinspi_2425.xlsx',
      'statewide FY 24-25'),
 ]
 
 PORTAL_URL   = ('https://www.myfloridalicense.com'
                 '/inspectionDetail.asp?InspVisitID={visit_id}&id={license_id}')
-PORTAL_URL   = ('https://www.myfloridalicense.com'
-                '/inspectionDetail.asp?InspVisitID={visit_id}&id={license_id}')
 
-WRITE_BATCH    = 500
-PORTAL_WORKERS = 8
+WRITE_BATCH       = 1000   # DB write batch size
+PORTAL_CONCURRENCY = 50   # async concurrent portal requests
+PORTAL_WRITE_EVERY = 2000 # stream writes to DB every N portal completions
 
 _SEV_WEIGHT = {'critical': 3, 'major': 2, 'minor': 1}
 
@@ -97,7 +96,7 @@ def _download(url: str, label: str = '') -> bytes | None:
 
 
 def _fetch_html(url: str, retries: int = 3) -> str | None:
-    """Fetch a page and return its HTML text (for portal pages)."""
+    """Sync fetch — used only for bulk file downloads, not portal pages."""
     for attempt in range(retries):
         try:
             req = urllib.request.Request(
@@ -114,6 +113,32 @@ def _fetch_html(url: str, retries: int = 3) -> str | None:
             if attempt < retries - 1:
                 time.sleep(1)
     return None
+
+
+async def _fetch_portal_async(session, visit_id: str, license_id: str,
+                               sem: asyncio.Semaphore,
+                               retries: int = 3) -> tuple[str, list[dict] | None]:
+    """Async fetch of one portal page. Returns (visit_id, violations | None)."""
+    import aiohttp
+    url = PORTAL_URL.format(visit_id=visit_id, license_id=license_id)
+    async with sem:
+        for attempt in range(retries):
+            try:
+                async with session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as r:
+                    if r.status == 404:
+                        return visit_id, None
+                    if r.status >= 400:
+                        if attempt < retries - 1:
+                            await asyncio.sleep(2)
+                            continue
+                        return visit_id, None
+                    html = await r.text(errors='replace')
+                    viols = parse_portal_page(html)
+                    return visit_id, viols or None
+            except Exception:
+                if attempt < retries - 1:
+                    await asyncio.sleep(1)
+    return visit_id, None
 
 # ── HTML helpers ──────────────────────────────────────────────────────────────
 
@@ -178,15 +203,6 @@ def parse_portal_page(html: str) -> list[dict]:
     return violations
 
 
-def _fetch_portal_worker(args: tuple[str, str]) -> tuple[str, list[dict] | None]:
-    """Thread worker: fetch one portal page. Returns (visit_id, violations | None)."""
-    visit_id, license_id = args
-    url  = PORTAL_URL.format(visit_id=visit_id, license_id=license_id)
-    html = _fetch_html(url)
-    if not html:
-        return visit_id, None
-    viols = parse_portal_page(html)
-    return visit_id, viols or None
 
 # ── Parsing ───────────────────────────────────────────────────────────────────
 
@@ -228,10 +244,12 @@ def _title(s: str) -> str:
 
 
 def _extract_violation_items(row: dict) -> list[int]:
-    """Return item numbers (1-58) that have a non-zero violation count (CSV fallback)."""
+    """Return item numbers (1-58) that have a non-zero violation count (CSV fallback).
+    Handles both CSV format ('Violation 01') and XLSX format ('V_01').
+    """
     items = []
     for i in range(1, 59):
-        val = row.get(f'Violation {i:02d}', '')
+        val = row.get(f'Violation {i:02d}') or row.get(f'V_{i:02d}', '')
         if val is not None:
             val = str(val).strip()
         if val and val != '0':
@@ -242,9 +260,11 @@ def _extract_violation_items(row: dict) -> list[int]:
 def row_to_record(row: dict) -> dict | None:
     license_num = _get(row,
         'License Number', 'License_Number', 'LICENSE NUMBER', 'LICENSE_NUMBER',
+        'LICENSE_NO',
     )
     insp_num = _get(row,
         'Inspection Number', 'Inspection_Number', 'INSPECTION NUMBER', 'INSPECTION_NUMBER',
+        'INSP_NO',
     )
     name = _get(row,
         'Business (DBA-Does Business As) Name',
@@ -252,35 +272,50 @@ def row_to_record(row: dict) -> dict | None:
     )
     address = _get(row,
         'Location Address', 'LOCATION ADDRESS', 'LOCATION_ADDRESS',
+        'LOC_ADDRESS',
     )
     city = _get(row,
         'Location City', 'LOCATION CITY', 'LOCATION_CITY',
+        'LOC_CITY',
     )
     zipcode = _get(row,
         'Location Zip Code', 'LOCATION ZIP', 'LOCATION_ZIP', 'ZIP',
+        'LOC_ZIP',
     )
     insp_date_s = _get(row,
         'Inspection Date', 'INSPECTION DATE', 'INSPECTION_DATE',
+        'INSP_DATE',
     )
     insp_type = _get(row,
         'Inspection Type', 'INSPECTION TYPE', 'INSPECTION_TYPE',
+        'INSPTYPE',
     )
 
-    # For portal URL: CSV columns "Inspection Visit ID" and "License ID"
-    visit_id   = _get(row, 'Inspection Visit ID', 'INSPECTION_VISIT_ID', 'Inspection_Visit_ID')
-    license_id = _get(row, 'License ID', 'LICENSE_ID', 'License_ID')
+    # For portal URL — CSV: "Inspection Visit ID" / "License ID"
+    #                  XLSX: "INSP_VST_ID" / "LIC_ID"
+    visit_id   = _get(row,
+        'Inspection Visit ID', 'INSPECTION_VISIT_ID', 'Inspection_Visit_ID',
+        'INSP_VST_ID',
+    )
+    license_id = _get(row,
+        'License ID', 'LICENSE_ID', 'License_ID',
+        'LIC_ID',
+    )
 
     n_high = _int(_get(row,
         'Number of High Priority Violations',
         'High Priority Violations', 'HIGH_PRIORITY_VIOLATIONS',
+        'HIGH_VIOL',
     ))
     n_int = _int(_get(row,
         'Number of Intermediate Violations',
         'Intermediate Violations', 'INTERMEDIATE_VIOLATIONS',
+        'INTERMED_VIOL',
     ))
     n_basic = _int(_get(row,
         'Number of Basic Violations',
         'Basic Violations', 'BASIC_VIOLATIONS',
+        'BASIC_VIOL',
     ))
 
     if not license_num or not insp_num or not name:
@@ -475,6 +510,8 @@ def write_batch(records: list[dict], dry_run: bool,
                 slug      = slug,
                 address   = rec['address'],
                 city      = rec['city'],
+                state     = 'FL',
+                zip       = rec.get('zipcode', '') or '',
             )
             db.session.add(restaurant)
             db.session.flush()
@@ -578,51 +615,10 @@ def run_import(sources: list[tuple[str, str]], dry_run: bool, skip_portal: bool,
             print('\nDone: nothing new.')
             return
 
-        # ── Phase 3: parallel portal fetches for violation details ────────────
-        if not skip_portal and not dry_run:
-            portal_eligible = [
-                r for r in new_records
-                if r.get('visit_id') and r.get('license_id')
-            ]
-            portal_map: dict[str, list[dict] | None] = {}
-
-            if portal_eligible:
-                total = len(portal_eligible)
-                print(f'  Fetching {total:,} portal pages '
-                      f'({PORTAL_WORKERS} workers)...', flush=True)
-                fetched = 0
-
-                with ThreadPoolExecutor(max_workers=PORTAL_WORKERS) as pool:
-                    futures = {
-                        pool.submit(
-                            _fetch_portal_worker,
-                            (r['visit_id'], r['license_id'])
-                        ): r['visit_id']
-                        for r in portal_eligible
-                    }
-                    for future in as_completed(futures):
-                        visit_id, viols = future.result()
-                        portal_map[visit_id] = viols
-                        fetched += 1
-                        if fetched % 200 == 0 or fetched == total:
-                            hits = sum(1 for v in portal_map.values() if v is not None)
-                            print(f'  [{fetched:,}/{total:,}] portal fetched '
-                                  f'({hits:,} with violations)',
-                                  end='\r', flush=True)
-                print(flush=True)
-                hits = sum(1 for v in portal_map.values() if v is not None)
-                print(f'  Portal: {hits:,}/{total:,} pages returned violations',
-                      flush=True)
-
-            # Attach portal violations to each new record
-            for r in new_records:
-                r['portal_viols'] = portal_map.get(r.get('visit_id', ''))
-
-        # ── Phase 4: write to DB in batches ───────────────────────────────────
         total_r = total_i = total_skip = 0
 
-        for batch_start in range(0, len(new_records), WRITE_BATCH):
-            batch = new_records[batch_start: batch_start + WRITE_BATCH]
+        def _flush(batch: list[dict]) -> tuple[int, int, int]:
+            nonlocal total_r, total_i, total_skip
             new_r, new_i, skip = write_batch(
                 batch, dry_run, existing, seen_slugs, known_insp,
                 db, Restaurant, Inspection, Violation,
@@ -632,12 +628,76 @@ def run_import(sources: list[tuple[str, str]], dry_run: bool, skip_portal: bool,
             total_r    += new_r
             total_i    += new_i
             total_skip += skip
+            return new_r, new_i, skip
 
-            done = min(batch_start + WRITE_BATCH, len(new_records))
-            print(f'  [{done:,}/{len(new_records):,}] '
-                  f'+{total_r} restaurants, +{total_i} inspections, '
-                  f'{total_skip} skipped',
-                  end='\r', flush=True)
+        # ── Phase 3: write records with no portal eligibility immediately ─────
+        no_portal = [r for r in new_records
+                     if not (r.get('visit_id') and r.get('license_id'))]
+        if no_portal and not dry_run:
+            for batch_start in range(0, len(no_portal), WRITE_BATCH):
+                _flush(no_portal[batch_start: batch_start + WRITE_BATCH])
+            print(f'  Wrote {len(no_portal):,} records with no portal ID '
+                  f'(CSV fallback)', flush=True)
+
+        # ── Phase 4: async portal fetch + streaming DB writes ─────────────────
+        portal_eligible = [r for r in new_records
+                           if r.get('visit_id') and r.get('license_id')]
+        if portal_eligible and not skip_portal and not dry_run:
+            import aiohttp
+
+            total_portal = len(portal_eligible)
+            print(f'  Fetching {total_portal:,} portal pages '
+                  f'({PORTAL_CONCURRENCY} concurrent)...', flush=True)
+
+            # Build lookup: visit_id → record (for attaching results)
+            vid_to_rec: dict[str, dict] = {r['visit_id']: r for r in portal_eligible}
+            hits = fetched = 0
+            pending: list[dict] = []
+
+            async def _run_portal():
+                nonlocal hits, fetched, pending
+                sem = asyncio.Semaphore(PORTAL_CONCURRENCY)
+                connector = aiohttp.TCPConnector(limit=PORTAL_CONCURRENCY)
+                headers = {'User-Agent': 'Mozilla/5.0 (compatible)'}
+                async with aiohttp.ClientSession(connector=connector,
+                                                 headers=headers) as session:
+                    tasks = [
+                        _fetch_portal_async(session, r['visit_id'],
+                                            r['license_id'], sem)
+                        for r in portal_eligible
+                    ]
+                    for coro in asyncio.as_completed(tasks):
+                        visit_id, viols = await coro
+                        rec = vid_to_rec.get(visit_id)
+                        if rec is not None:
+                            rec['portal_viols'] = viols
+                            pending.append(rec)
+                        if viols:
+                            hits += 1
+                        fetched += 1
+
+                        if fetched % PORTAL_WRITE_EVERY == 0 or fetched == total_portal:
+                            if pending:
+                                for b in range(0, len(pending), WRITE_BATCH):
+                                    _flush(pending[b: b + WRITE_BATCH])
+                                pending = []
+                            print(f'  [{fetched:,}/{total_portal:,}] '
+                                  f'+{total_r:,} restaurants  '
+                                  f'+{total_i:,} inspections  '
+                                  f'{hits:,} with portal violations',
+                                  flush=True)
+
+            asyncio.run(_run_portal())
+
+            # Flush any remainder
+            if pending:
+                for b in range(0, len(pending), WRITE_BATCH):
+                    _flush(pending[b: b + WRITE_BATCH])
+
+        elif portal_eligible and (skip_portal or dry_run):
+            # skip_portal or dry_run: write with CSV fallback
+            for batch_start in range(0, len(portal_eligible), WRITE_BATCH):
+                _flush(portal_eligible[batch_start: batch_start + WRITE_BATCH])
 
     print(f'\nDone: +{total_r} restaurants, +{total_i} inspections, '
           f'{total_skip} skipped.')
