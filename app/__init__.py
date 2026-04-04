@@ -3,7 +3,6 @@ import time
 
 from flask import Flask, g, has_request_context, render_template, request
 from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
 from sqlalchemy import event
 from sqlalchemy.engine import Engine
 from dotenv import load_dotenv
@@ -41,9 +40,12 @@ def create_app():
     db.init_app(app)
     cache.init_app(app)
 
+    def _real_ip():
+        return request.headers.get('X-Forwarded-For', request.remote_addr).split(',')[0].strip()
+
     # Rate limiting — 60 req/min per IP, in-memory (single machine)
     limiter = Limiter(
-        key_func=get_remote_address,
+        key_func=_real_ip,
         storage_uri='memory://',
         default_limits=['60 per minute'],
     )
