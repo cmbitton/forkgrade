@@ -8,3 +8,4 @@ gunicorn==22.0.0
 Faker==24.4.0
 google-genai
 openpyxl
+aiohttp

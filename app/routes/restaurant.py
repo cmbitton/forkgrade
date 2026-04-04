@@ -116,20 +116,30 @@ def render_restaurant(restaurant):
     nearby = get_nearby_restaurants(restaurant)
 
     # Build JSON-LD
+    local_biz = {
+        "@type": "Restaurant",
+        "name": restaurant.name,
+        "address": {
+            "@type": "PostalAddress",
+            "streetAddress": restaurant.address or '',
+            "addressLocality": restaurant.city or '',
+            "addressRegion": restaurant.state or '',
+            "postalCode": restaurant.zip or ''
+        }
+    }
+    if latest_inspection and latest_inspection.score is not None:
+        local_biz["aggregateRating"] = {
+            "@type": "AggregateRating",
+            "ratingValue": str(latest_inspection.score),
+            "bestRating": "100",
+            "worstRating": "0",
+            "ratingCount": str(total_inspections)
+        }
+
     json_ld = {
         "@context": "https://schema.org",
         "@graph": [
-            {
-                "@type": "LocalBusiness",
-                "name": restaurant.name,
-                "address": {
-                    "@type": "PostalAddress",
-                    "streetAddress": restaurant.address or '',
-                    "addressLocality": restaurant.city or '',
-                    "addressRegion": restaurant.state or '',
-                    "postalCode": restaurant.zip or ''
-                }
-            },
+            local_biz,
             {
                 "@type": "BreadcrumbList",
                 "itemListElement": [
@@ -172,17 +182,34 @@ def render_restaurant(restaurant):
     site_name = current_app.config['SITE_NAME']
     base_url = current_app.config['BASE_URL']
 
-    if latest_inspection:
-        last_date_str = latest_inspection.inspection_date.strftime('%b %-d, %Y')
-    else:
-        last_date_str = 'N/A'
+    _tier_labels = {'low': 'Low Risk', 'medium': 'Medium Risk', 'high': 'High Risk'}
+    score = latest_inspection.score if latest_inspection else None
+    tier_label = _tier_labels.get(restaurant.score_tier, '')
 
-    score_str = f" Current score: {latest_inspection.score}." if latest_inspection and latest_inspection.score is not None else ''
-    description = (
-        f"View the full health inspection history for {restaurant.display_name} "
-        f"in {restaurant.city}, {restaurant.state}. Last inspected {last_date_str}.{score_str} "
-        f"{total_inspections} inspection{'s' if total_inspections != 1 else ''} on record."
-    )
+    if score is not None and tier_label:
+        description = (
+            f"{restaurant.display_name} health inspection score: {score} out of 100 ({tier_label}). "
+            f"{restaurant.city}, {restaurant.state}. See full violation history, inspection dates, and detailed findings."
+        )
+    else:
+        description = (
+            f"{restaurant.display_name} in {restaurant.city}, {restaurant.state}. "
+            f"View full health inspection history, violation records, and detailed findings."
+        )
+    if len(description) > 160:
+        description = description[:157] + '...'
+
+    if score is not None:
+        og_title = f"{restaurant.display_name} — Health Inspection Score: {score}/100"
+    else:
+        og_title = f"{restaurant.display_name} — Health Inspection Score & History"
+    if tier_label:
+        og_description = (
+            f"{restaurant.display_name} in {restaurant.city}, {restaurant.state}. "
+            f"Rated {tier_label}. See full inspection history and violations."
+        )
+    else:
+        og_description = description
 
     canonical_url = f"{base_url}/{restaurant.region}/{restaurant.slug}/"
 
@@ -199,6 +226,8 @@ def render_restaurant(restaurant):
         'restaurant.html',
         title=f'{restaurant.display_name} Health Inspection Score & History — {restaurant.city}, {restaurant.state} | {site_name}',
         description=description,
+        og_title=og_title,
+        og_description=og_description,
         canonical_url=canonical_url,
         restaurant=restaurant,
         inspections=inspections,

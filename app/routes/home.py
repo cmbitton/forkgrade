@@ -52,7 +52,7 @@ def about():
     return render_template(
         'about.html',
         title=f'About | {current_app.config["SITE_NAME"]}',
-        description='ForkGrade is a free public tool that aggregates food establishment health inspection data from government sources.',
+        description='About ForkGrade — the largest free, independent restaurant health inspection database in the US. How we collect and score public inspection data.',
         canonical_url=current_app.config['BASE_URL'] + '/about',
     )
 
@@ -80,7 +80,7 @@ def methodology():
     return render_template(
         'methodology.html',
         title=f'Methodology | {current_app.config["SITE_NAME"]}',
-        description='How ForkGrade calculates health inspection scores from violation data.',
+        description='How ForkGrade scores restaurant health inspections. Our 0-100 scoring formula, violation weights, risk tiers, and data sources explained.',
         canonical_url=current_app.config['BASE_URL'] + '/methodology',
     )
 
@@ -151,7 +151,7 @@ def index():
     return render_template(
         'home.html',
         title=f'Restaurant Health Inspection Scores | {current_app.config["SITE_NAME"]}',
-        description='Search health inspection scores and violation history across the US.',
+        description=f'The largest free restaurant health inspection database in the US. Search {total_restaurants:,}+ facilities across multiple cities. Scores, violations, and risk tiers.',
         canonical_url=current_app.config['BASE_URL'] + '/',
         search_query=q,
         search_results=None,

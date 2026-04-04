@@ -10,8 +10,8 @@
     {% endif %}
     <link rel="canonical" href="{{ canonical_url }}">
     <meta property="og:site_name" content="ForkGrade">
-    <meta property="og:title" content="{{ title }}">
-    <meta property="og:description" content="{{ description }}">
+    <meta property="og:title" content="{{ og_title or title }}">
+    <meta property="og:description" content="{{ og_description or description }}">
     <meta property="og:url" content="{{ canonical_url }}">
     <meta property="og:type" content="website">
     <meta property="og:image" content="{{ config.BASE_URL }}/static/og-image.png">
