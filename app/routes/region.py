@@ -443,6 +443,10 @@ def region_index(region):
 def region_insights(region):
     from app.models.region_stats import RegionStats
 
+    site_name      = current_app.config['SITE_NAME']
+    base_url       = current_app.config['BASE_URL']
+    region_display = get_region_display(region)
+
     stats = db.session.get(RegionStats, region)
     if not stats:
         abort(404)
