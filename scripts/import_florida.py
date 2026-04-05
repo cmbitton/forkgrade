@@ -556,9 +556,10 @@ def write_batch(records: list[dict], dry_run: bool,
 # ── Import runner ─────────────────────────────────────────────────────────────
 
 def run_import(sources: list[tuple[str, str]], dry_run: bool, skip_portal: bool,
-               app, db, Restaurant, Inspection, Violation):
+               app, db, Restaurant, Inspection, Violation, days: int = 0):
     """
     sources: list of (url, label) to download and parse.
+    days: if > 0, only process records with insp_date in the last N days.
     """
 
     with app.app_context():
@@ -617,6 +618,11 @@ def run_import(sources: list[tuple[str, str]], dry_run: bool, skip_portal: bool,
             del data  # free raw bytes before processing
 
             print(f'  Parsed {len(records):,} records from {label}', flush=True)
+
+            if days > 0:
+                cutoff = date.today() - timedelta(days=days)
+                records = [r for r in records if r['insp_date'] and r['insp_date'] >= cutoff]
+                print(f'  {len(records):,} records in last {days} days', flush=True)
 
             new_records = [r for r in records if r['insp_num'] not in known_insp]
             del records  # free parsed records
@@ -707,6 +713,10 @@ def main():
     full_mode   = '--full'        in sys.argv
     dry_run     = '--dry-run'     in sys.argv
     skip_portal = '--skip-portal' in sys.argv
+    days        = 0
+    for arg in sys.argv[1:]:
+        if arg.startswith('--days='):
+            days = int(arg.split('=', 1)[1])
 
     sources: list[tuple[str, str]] = []
 
@@ -724,6 +734,8 @@ def main():
     else:
         print(f'=== Florida: Current import ({len(DISTRICTS)} district files) ===')
 
+    if days:
+        print(f'  (last {days} days only)')
     if skip_portal:
         print('  (Portal phase skipped)')
 
@@ -734,7 +746,7 @@ def main():
     from app.models.violation import Violation
 
     app = create_app()
-    run_import(sources, dry_run, skip_portal, app, db, Restaurant, Inspection, Violation)
+    run_import(sources, dry_run, skip_portal, app, db, Restaurant, Inspection, Violation, days=days)
 
 
 if __name__ == '__main__':
