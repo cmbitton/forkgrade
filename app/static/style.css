@@ -1650,7 +1650,7 @@ nav {
 /* Mobile cuisine chart — hidden on desktop, shown on mobile */
 .insights-cuisine-mobile { display: none; }
 
-@media (max-width: 600px) {
+@media (max-width: 768px) {
     .insights-header { padding: 20px 18px; }
     .insights-card   { padding: 18px 16px; }
     .insights-tier-row {
@@ -1659,14 +1659,30 @@ nav {
         gap: 20px;
     }
     .insights-chart-wrap--donut { max-width: 100%; }
-    .insights-tier-stats { width: 100%; }
+    .insights-tier-stats {
+        width: 100%;
+        gap: 8px;
+    }
+    .insights-tier-block {
+        padding: 10px 6px;
+    }
+    .insights-tier-count {
+        font-size: 16px;
+    }
+    .insights-tier-pct {
+        font-size: 11px;
+    }
+    .insights-tier-label {
+        font-size: 10px;
+        letter-spacing: 0.3px;
+    }
     .insights-neighborhood-cols {
         grid-template-columns: 1fr;
     }
     .insights-violation-desc {
         white-space: normal;
     }
-    /* Issue 1: neighborhood rows wrap to two lines */
+    /* Neighborhood rows wrap to two lines */
     .insights-neighborhood-item {
         flex-wrap: wrap;
     }
@@ -1677,7 +1693,7 @@ nav {
     .insights-city-stats {
         flex-basis: 100%;
     }
-    /* Issue 2: swap Chart.js cuisine chart for HTML version */
+    /* Swap Chart.js cuisine chart for HTML version */
     .insights-chart-wrap--cuisine { display: none; }
     .insights-cuisine-mobile {
         display: flex;
@@ -1711,9 +1727,9 @@ nav {
         color: var(--text-secondary);
         flex-shrink: 0;
     }
-    /* Issue 3: stat card overflow */
+    /* Stat card overflow */
     .stat-value { font-size: 20px; }
     .stat-card  { padding: 14px 10px; }
-    /* Issue 5: chart canvas overflow */
+    /* Chart canvas overflow */
     .insights-chart-wrap { overflow: hidden; }
 }
