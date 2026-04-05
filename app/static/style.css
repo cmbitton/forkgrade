@@ -1424,7 +1424,7 @@ nav {
 /* Chart wrappers */
 .insights-chart-wrap {
     position: relative;
-    max-height: 300px;
+    height: 300px;
 }
 .insights-chart-wrap--donut {
     max-height: 220px;
