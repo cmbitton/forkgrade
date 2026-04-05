@@ -561,28 +561,8 @@ def run_import(sources: list[tuple[str, str]], dry_run: bool, skip_portal: bool,
     sources: list of (url, label) to download and parse.
     """
 
-    # ── Download and parse all files ─────────────────────────────────────────
-    all_records: list[dict] = []
-    for url, label in sources:
-        data = _download(url, label)
-        if not data:
-            continue
-        is_xlsx = url.lower().endswith('.xlsx') or url.lower().endswith('.xls')
-        if is_xlsx:
-            records = parse_xlsx_data(data)
-        else:
-            records = parse_csv_data(data, debug=(len(all_records) == 0))
-        print(f'  Parsed {len(records):,} records from {label}', flush=True)
-        all_records.extend(records)
-
-    print(f'\n  Total records collected: {len(all_records):,}', flush=True)
-
-    if not all_records:
-        print('Nothing to import.')
-        return
-
     with app.app_context():
-        # Pre-load all FL restaurants
+        # Pre-load all FL restaurants once — shared across all district files
         existing = {
             r.source_id: r
             for r in Restaurant.query.filter_by(region=REGION)
@@ -595,26 +575,17 @@ def run_import(sources: list[tuple[str, str]], dry_run: bool, skip_portal: bool,
                             .with_entities(Restaurant.slug).all()
         }
 
-        # Bulk dedup inspections
-        all_insp_ids = [r['insp_num'] for r in all_records]
-        if not dry_run and all_insp_ids:
+        # Load all known FL inspection IDs once for dedup
+        if not dry_run:
             known_insp = {
                 row[0] for row in db.session.execute(
                     db.text('SELECT source_id FROM inspections '
-                            'WHERE source_id = ANY(:ids)'),
-                    {'ids': all_insp_ids}
+                            'WHERE region = :region'),
+                    {'region': REGION}
                 ).fetchall()
             }
         else:
             known_insp = set()
-
-        # Filter to only new inspections
-        new_records = [r for r in all_records if r['insp_num'] not in known_insp]
-        print(f'  {len(new_records):,} new inspections after dedup', flush=True)
-
-        if not new_records:
-            print('\nDone: nothing new.')
-            return
 
         total_r = total_i = total_skip = 0
 
@@ -631,74 +602,101 @@ def run_import(sources: list[tuple[str, str]], dry_run: bool, skip_portal: bool,
             total_skip += skip
             return new_r, new_i, skip
 
-        # ── Phase 3: write records with no portal eligibility immediately ─────
-        no_portal = [r for r in new_records
-                     if not (r.get('visit_id') and r.get('license_id'))]
-        if no_portal and not dry_run:
-            for batch_start in range(0, len(no_portal), WRITE_BATCH):
-                _flush(no_portal[batch_start: batch_start + WRITE_BATCH])
-            print(f'  Wrote {len(no_portal):,} records with no portal ID '
-                  f'(CSV fallback)', flush=True)
+        # ── Process each source file one at a time to keep memory low ────────
+        first = True
+        for url, label in sources:
+            data = _download(url, label)
+            if not data:
+                continue
+            is_xlsx = url.lower().endswith('.xlsx') or url.lower().endswith('.xls')
+            if is_xlsx:
+                records = parse_xlsx_data(data)
+            else:
+                records = parse_csv_data(data, debug=first)
+            first = False
+            del data  # free raw bytes before processing
 
-        # ── Phase 4: async portal fetch + streaming DB writes ─────────────────
-        portal_eligible = [r for r in new_records
-                           if r.get('visit_id') and r.get('license_id')]
-        if portal_eligible and not skip_portal and not dry_run:
-            import aiohttp
+            print(f'  Parsed {len(records):,} records from {label}', flush=True)
 
-            total_portal = len(portal_eligible)
-            print(f'  Fetching {total_portal:,} portal pages '
-                  f'({PORTAL_CONCURRENCY} concurrent)...', flush=True)
+            new_records = [r for r in records if r['insp_num'] not in known_insp]
+            del records  # free parsed records
 
-            # Build lookup: visit_id → record (for attaching results)
-            vid_to_rec: dict[str, dict] = {r['visit_id']: r for r in portal_eligible}
-            hits = fetched = 0
-            pending: list[dict] = []
+            if not new_records:
+                print(f'  Nothing new in {label}.', flush=True)
+                continue
 
-            async def _run_portal():
-                nonlocal hits, fetched, pending
-                sem = asyncio.Semaphore(PORTAL_CONCURRENCY)
-                connector = aiohttp.TCPConnector(limit=PORTAL_CONCURRENCY)
-                headers = {'User-Agent': 'Mozilla/5.0 (compatible)'}
-                async with aiohttp.ClientSession(connector=connector,
-                                                 headers=headers) as session:
-                    tasks = [
-                        _fetch_portal_async(session, r['visit_id'],
-                                            r['license_id'], sem)
-                        for r in portal_eligible
-                    ]
-                    for coro in asyncio.as_completed(tasks):
-                        visit_id, viols = await coro
-                        rec = vid_to_rec.get(visit_id)
-                        if rec is not None:
-                            rec['portal_viols'] = viols
-                            pending.append(rec)
-                        if viols:
-                            hits += 1
-                        fetched += 1
+            print(f'  {len(new_records):,} new inspections after dedup', flush=True)
 
-                        if fetched % PORTAL_WRITE_EVERY == 0 or fetched == total_portal:
-                            if pending:
-                                for b in range(0, len(pending), WRITE_BATCH):
-                                    _flush(pending[b: b + WRITE_BATCH])
-                                pending = []
-                            print(f'  [{fetched:,}/{total_portal:,}] '
-                                  f'+{total_r:,} restaurants  '
-                                  f'+{total_i:,} inspections  '
-                                  f'{hits:,} with portal violations',
-                                  flush=True)
+            # ── Phase 3: write records with no portal eligibility immediately ─
+            no_portal = [r for r in new_records
+                         if not (r.get('visit_id') and r.get('license_id'))]
+            if no_portal and not dry_run:
+                for batch_start in range(0, len(no_portal), WRITE_BATCH):
+                    _flush(no_portal[batch_start: batch_start + WRITE_BATCH])
+                print(f'  Wrote {len(no_portal):,} records with no portal ID '
+                      f'(CSV fallback)', flush=True)
+            del no_portal
 
-            asyncio.run(_run_portal())
+            # ── Phase 4: async portal fetch + streaming DB writes ─────────────
+            portal_eligible = [r for r in new_records
+                               if r.get('visit_id') and r.get('license_id')]
+            del new_records
 
-            # Flush any remainder
-            if pending:
-                for b in range(0, len(pending), WRITE_BATCH):
-                    _flush(pending[b: b + WRITE_BATCH])
+            if portal_eligible and not skip_portal and not dry_run:
+                import aiohttp
 
-        elif portal_eligible and (skip_portal or dry_run):
-            # skip_portal or dry_run: write with CSV fallback
-            for batch_start in range(0, len(portal_eligible), WRITE_BATCH):
-                _flush(portal_eligible[batch_start: batch_start + WRITE_BATCH])
+                total_portal = len(portal_eligible)
+                print(f'  Fetching {total_portal:,} portal pages '
+                      f'({PORTAL_CONCURRENCY} concurrent)...', flush=True)
+
+                vid_to_rec: dict[str, dict] = {r['visit_id']: r for r in portal_eligible}
+                hits = fetched = 0
+                pending: list[dict] = []
+
+                async def _run_portal():
+                    nonlocal hits, fetched, pending
+                    sem = asyncio.Semaphore(PORTAL_CONCURRENCY)
+                    connector = aiohttp.TCPConnector(limit=PORTAL_CONCURRENCY)
+                    headers = {'User-Agent': 'Mozilla/5.0 (compatible)'}
+                    async with aiohttp.ClientSession(connector=connector,
+                                                     headers=headers) as session:
+                        tasks = [
+                            _fetch_portal_async(session, r['visit_id'],
+                                                r['license_id'], sem)
+                            for r in portal_eligible
+                        ]
+                        for coro in asyncio.as_completed(tasks):
+                            visit_id, viols = await coro
+                            rec = vid_to_rec.get(visit_id)
+                            if rec is not None:
+                                rec['portal_viols'] = viols
+                                pending.append(rec)
+                            if viols:
+                                hits += 1
+                            fetched += 1
+
+                            if fetched % PORTAL_WRITE_EVERY == 0 or fetched == total_portal:
+                                if pending:
+                                    for b in range(0, len(pending), WRITE_BATCH):
+                                        _flush(pending[b: b + WRITE_BATCH])
+                                    pending = []
+                                print(f'  [{fetched:,}/{total_portal:,}] '
+                                      f'+{total_r:,} restaurants  '
+                                      f'+{total_i:,} inspections  '
+                                      f'{hits:,} with portal violations',
+                                      flush=True)
+
+                asyncio.run(_run_portal())
+
+                if pending:
+                    for b in range(0, len(pending), WRITE_BATCH):
+                        _flush(pending[b: b + WRITE_BATCH])
+
+            elif portal_eligible and (skip_portal or dry_run):
+                for batch_start in range(0, len(portal_eligible), WRITE_BATCH):
+                    _flush(portal_eligible[batch_start: batch_start + WRITE_BATCH])
+
+            del portal_eligible
 
     print(f'\nDone: +{total_r} restaurants, +{total_i} inspections, '
           f'{total_skip} skipped.')
