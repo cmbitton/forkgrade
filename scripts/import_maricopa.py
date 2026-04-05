@@ -29,7 +29,7 @@ Grade system (Maricopa County):
   D: 3+ Priority violations or legal action taken
 
 Usage:
-  python3 scripts/import_maricopa.py              # check existing restaurants (last 7 days)
+  python3 scripts/import_maricopa.py              # check existing restaurants (last 5 days)
   python3 scripts/import_maricopa.py --days=14
   python3 scripts/import_maricopa.py --full        # enumerate all ~26k permits from scratch
   python3 scripts/import_maricopa.py --rescrape    # re-fetch violations for all existing DB records
@@ -1189,7 +1189,7 @@ def main():
     full_mode     = '--full'     in sys.argv
     rescrape_mode = '--rescrape' in sys.argv
     dry_run       = '--dry-run'  in sys.argv
-    days          = 7
+    days          = 5
     limit         = 0
     since         = None
     for arg in sys.argv[1:]:
