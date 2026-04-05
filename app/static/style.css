@@ -1419,6 +1419,7 @@ nav {
     text-transform: uppercase;
     letter-spacing: 0.4px;
     margin-left: 8px;
+    white-space: nowrap;
 }
 
 /* Chart wrappers */
