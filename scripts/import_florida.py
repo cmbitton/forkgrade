@@ -422,6 +422,70 @@ def _result(score: int) -> str:
         return 'Pass with Conditions'
     return 'Fail'
 
+# ── Florida DBPR 58-point inspection item descriptions (Form HR 5022) ─────────
+# Items 01-10 High Priority · 11-20 Intermediate · 21-58 Basic
+
+_FL_ITEM_DESC: dict[int, str] = {
+    1:  'Supervisor/Person in Charge Present',
+    2:  'Certified Food Manager Identification',
+    3:  'Employee Health Policies Present',
+    4:  'Proper Use of Restriction and Exclusion',
+    5:  'Procedures for Responding to Vomiting/Diarrheal Events',
+    6:  'Proper Eating, Tasting, Drinking, or Tobacco Use',
+    7:  'No Discharge from Eyes, Nose, and Mouth',
+    8:  'Hands Clean and Properly Washed',
+    9:  'No Bare Hand Contact with Ready-to-Eat Food',
+    10: 'Adequate Handwashing Facilities Supplied and Accessible',
+    11: 'Food Obtained from Approved Sources',
+    12: 'Food Received at Proper Temperature',
+    13: 'Food in Good Condition, Safe, and Unadulterated',
+    14: 'Required Records Available; Shellstock Tags/Labels',
+    15: 'Proper Date Marking and Disposition',
+    16: 'Potentially Hazardous Food Held at Proper Temperature',
+    17: 'Proper Cooling Time and Temperature',
+    18: 'Proper Cooking Temperatures for PHF',
+    19: 'Consumer Advisory Posted for Raw/Undercooked Animal Foods',
+    20: 'Variance/Specialized Process/HACCP Plan in Place',
+    21: 'Proper Hot and Cold Holding Temperatures',
+    22: 'Food Contact Surfaces Clean and Sanitized',
+    23: 'Non-Food Contact Surfaces Clean',
+    24: 'Warewashing Facilities Maintained and Used',
+    25: 'Hot and Cold Water Available; Adequate Pressure',
+    26: 'Toilet Facilities Constructed, Supplied, Cleaned',
+    27: 'Sewage and Wastewater Properly Disposed',
+    28: 'Plumbing Installed; Proper Backflow Devices',
+    29: 'Equipment Adequate to Maintain Product Temperature',
+    30: 'Food Storage Containers Properly Identified',
+    31: 'Approved Thawing Methods Used',
+    32: 'Toxic Substances Properly Identified, Stored, Used',
+    33: 'Proper Sanitizer Contact Time and Concentration',
+    34: 'Equipment and Utensils Maintained in Good Repair',
+    35: 'Equipment, Food and Non-Food Contact Surfaces Approved',
+    36: 'Lighting Adequate; Required Shields in Place',
+    37: 'Ventilation and Filters Clean and Operable',
+    38: 'Insects, Rodents, and Animals Not Present',
+    39: 'Contamination Prevented During Preparation/Storage',
+    40: 'Personal Cleanliness',
+    41: 'Wiping Cloths Properly Used and Stored',
+    42: 'Washing Fruits and Vegetables',
+    43: 'In-Use Utensils Properly Stored',
+    44: 'Utensils, Equipment, and Linens Properly Stored and Dried',
+    45: 'Single-Use/Single-Service Articles Properly Stored and Used',
+    46: 'Food Temperature Measuring Devices Provided and Accurate',
+    47: 'Raw Animal Food Properly Separated from Each Other and RTE Food',
+    48: 'Food Properly Stored/Protected',
+    49: 'Non-Food Contact Surfaces Cleanable and Properly Maintained',
+    50: 'Food and Non-Food Contact Surfaces Designed and Constructed',
+    51: 'Plumbing Maintained; Sewage Disposal',
+    52: 'Floors, Walls, and Ceilings Clean and in Good Repair',
+    53: 'Toilet Rooms Maintained',
+    54: 'Garbage and Refuse Properly Disposed',
+    55: 'Physical Facilities Installed, Maintained, and Clean',
+    56: 'Unnecessary Items and Litter Not Present',
+    57: 'All Food Employees Have Food Handler Certificate',
+    58: 'Allergen Labeling/Menu Disclosure',
+}
+
 # ── CSV fallback violations (when portal unavailable) ─────────────────────────
 
 def _csv_fallback_violations(rec: dict) -> list[dict]:
@@ -452,7 +516,7 @@ def _csv_fallback_violations(rec: dict) -> list[dict]:
     for item_num, sev in zip(viol_items, severities):
         violations.append({
             'code':     f'FL-{item_num:02d}',
-            'desc':     f'Violation Item {item_num:02d}',
+            'desc':     _FL_ITEM_DESC.get(item_num, f'Violation Item {item_num:02d}'),
             'severity': sev,
         })
     return violations
