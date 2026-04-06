@@ -17,6 +17,11 @@ try:
 except Exception:
     _FDA_DESC = {}
 
+try:
+    from scripts.import_florida import _FL_ITEM_DESC
+except Exception:
+    _FL_ITEM_DESC = {}
+
 from app import create_app
 from app.db import db
 from app.models.restaurant import Restaurant
@@ -119,24 +124,60 @@ def compute_region(region: str) -> dict | None:
 
     _sev_prefix = re.compile(r'^(High Priority|Intermediate|Basic)\s*[-:]\s*', re.IGNORECASE)
     _instance_flags = re.compile(r'\s*\*\*(Corrected On-Site|Repeat Violation|Warning)\*\*', re.IGNORECASE)
+    _leading_code_re = re.compile(r'^[\d]+-[\d.]+(?:\([^)]*\))?\s+')
 
-    def _clean_desc(raw: str) -> str:
-        """Strip severity prefix and inspection-instance notes, keep category text only."""
+    def _clean_desc(raw: str) -> tuple[str, str]:
+        """Clean description, return (desc, embedded_fda_code).
+        - Strips severity prefix, instance flags, and leading code refs
+        - If first sentence is a terse title (<25 chars), uses the rest
+        """
+        embedded = ''
         s = _sev_prefix.sub('', raw).strip()
+        s = _instance_flags.sub('', s).strip()
+        # Strip leading FDA code ref (e.g. "8-304.11(k) the permit holder...")
+        m = _leading_code_re.match(s)
+        if m:
+            embedded = m.group().strip().rstrip('.-– ')
+            s = s[m.end():].strip()
+        # Handle "Title. details..." — if title is terse, skip to details
         period_idx = s.find('. ')
         if period_idx != -1:
-            s = s[:period_idx + 1]
-        s = _instance_flags.sub('', s).strip().rstrip('.')
-        return s or raw
+            first = s[:period_idx].strip()
+            rest = s[period_idx + 2:].strip()
+            if len(first) < 25 and rest:
+                s = rest  # skip terse section title, use details
+            else:
+                s = first  # keep first sentence
+        s = s.strip().rstrip('.')
+        if s:
+            s = s[0].upper() + s[1:]
+        return s or raw, embedded
 
     def _fda_lookup(code: str) -> str:
-        """Try exact match, then strip subsection parentheses."""
+        """Try exact, then strip all subsection parentheses progressively."""
+        if not code:
+            return ''
         if code in _FDA_DESC:
             return _FDA_DESC[code]
-        base = re.sub(r'\([^)]+\)$', '', code).strip()
-        if base != code and base in _FDA_DESC:
-            return _FDA_DESC[base]
+        # Strip trailing subsections one at a time: 4-601.11(A)(2) → 4-601.11(A) → 4-601.11
+        cur = code
+        while True:
+            stripped = re.sub(r'\([^)]*\)$', '', cur).strip()
+            if stripped == cur:
+                break
+            cur = stripped
+            if cur in _FDA_DESC:
+                return _FDA_DESC[cur]
         return ''
+
+    def _fl_lookup(code: str) -> str:
+        """Look up FL-XX item codes."""
+        if not code.startswith('FL-'):
+            return ''
+        try:
+            return _FL_ITEM_DESC.get(int(code[3:]), '')
+        except (ValueError, TypeError):
+            return ''
 
     _STOP = frozenset('a an the of or and not no is are in at to for from by on with other'.split())
 
@@ -162,13 +203,14 @@ def compute_region(region: str) -> dict | None:
     top_violations = []
     for code, total_cnt in _ranked:
         raw_desc = desc_map.get(code, '')
-        desc = _clean_desc(raw_desc) if raw_desc else ''
-        fda = _fda_lookup(code)
-        # Prefer FDA lookup when stored desc is missing, too short, or regulation-length
-        if fda and (not desc or len(desc) < 15 or len(desc) > 100 or desc == code):
-            desc = fda
+        desc, embedded = _clean_desc(raw_desc) if raw_desc else ('', '')
+        # Look up a better description from our mappings
+        better = _fl_lookup(code) or _fda_lookup(code) or _fda_lookup(embedded)
+        # Use better description when available and stored one is short/vague/long
+        if better and (not desc or len(desc) < 50 or len(desc) > 100 or desc == code):
+            desc = better
         if not desc or len(desc) < 5 or desc == code:
-            continue  # skip entries we can't describe meaningfully
+            continue
         if _similar_to_any(desc, seen_word_sets):
             continue
         seen_word_sets.append(_desc_words(desc))
