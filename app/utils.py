@@ -98,6 +98,9 @@ def region_location(region: str) -> str:
     return f'{display}, {abbr}'
 
 
+_STOP_WORDS = {'a', 'an', 'and', 'at', 'by', 'for', 'in', 'of', 'or', 'the', 'to'}
+
+
 def search_restaurants(q, region=None, sort='date', page=1, per_page=25):
     """Return (rows, total) for a name search.
 
@@ -107,6 +110,14 @@ def search_restaurants(q, region=None, sort='date', page=1, per_page=25):
     region: if given, scopes to that region only.
     sort:   'date' (newest first), 'score' (best→worst), 'name' (A–Z)
     """
+    # Normalize: replace special chars with spaces, collapse, split into tokens
+    tokens = re.sub(r'[^a-zA-Z0-9]+', ' ', q).split()
+    tokens = [t for t in tokens if t.lower() not in _STOP_WORDS]
+    if not tokens:
+        return [], 0
+
+    cleaned_name = func.regexp_replace(Restaurant.name, r'[^a-zA-Z0-9 ]', '', 'g')
+
     query = (
         db.session.query(Restaurant, Inspection)
         .outerjoin(Inspection, db.and_(
@@ -114,11 +125,7 @@ def search_restaurants(q, region=None, sort='date', page=1, per_page=25):
             Inspection.inspection_date == Restaurant.latest_inspection_date,
             Inspection.not_future(),
         ))
-        .filter(
-            func.regexp_replace(Restaurant.name, r'[^a-zA-Z0-9 ]', '', 'g').ilike(
-                f"%{re.sub(r'[^a-zA-Z0-9 ]', '', q)}%"
-            )
-        )
+        .filter(db.and_(*(cleaned_name.ilike(f'%{t}%') for t in tokens)))
     )
 
     if region:
