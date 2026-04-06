@@ -176,7 +176,7 @@
             <div class="cuisine-mobile-row">
                 <div class="cuisine-mobile-label">{{ c.cuisine }} ({{ '{:,}'.format(c.total) }})</div>
                 <div class="cuisine-mobile-bar-wrap">
-                    <div class="cuisine-mobile-bar" style="width: {{ [((c.avg_score - 40) / 60 * 100)|int, 2]|max }}%"></div>
+                    <div class="cuisine-mobile-bar" style="width: {{ [c.avg_score|int, 2]|max }}%"></div>
                     <span class="cuisine-mobile-score">{{ c.avg_score }}</span>
                 </div>
             </div>
@@ -454,7 +454,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 },
                 scales: {
                     x: {
-                        min: 40,
+                        min: 0,
                         max: 100,
                         grid: { color: 'rgba(0,0,0,0.04)' },
                         ticks: { font: { family: FONT } }
