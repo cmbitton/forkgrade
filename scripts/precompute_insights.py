@@ -84,19 +84,38 @@ def compute_region(region: str) -> dict | None:
     }
     print(f'  [{region}] violation_counts: {(_t()-t0)*1000:.0f}ms')
 
+    # ── Merge counts across severities per code ─────────────────────────────
     t0 = _t()
-    _top_codes = sorted(code_counts, key=lambda r: r.cnt, reverse=True)[:20]
-    _code_list = [r.violation_code for r in _top_codes]
+    _code_totals: dict[str, int] = {}
+    _code_sev: dict[str, str] = {}
+    _code_sev_cnt: dict[str, int] = {}
+    for r in code_counts:
+        code = r.violation_code or ''
+        if not code:
+            continue
+        cnt = int(r.cnt)
+        _code_totals[code] = _code_totals.get(code, 0) + cnt
+        if cnt > _code_sev_cnt.get(code, 0):
+            _code_sev[code] = r.severity or 'minor'
+            _code_sev_cnt[code] = cnt
+
+    _ranked = sorted(_code_totals.items(), key=lambda x: x[1], reverse=True)[:30]
+    _code_list = [code for code, _ in _ranked]
+
+    # Fetch descriptions — filtered by region, no empty strings
     desc_rows = (
         db.session.query(Violation.violation_code, Violation.description)
-        .filter(Violation.violation_code.in_(_code_list),
-                Violation.description.isnot(None))
+        .join(Inspection, Violation.inspection_id == Inspection.id)
+        .filter(
+            Inspection.region == region,
+            Violation.violation_code.in_(_code_list),
+            Violation.description.isnot(None),
+            Violation.description != '',
+        )
         .distinct(Violation.violation_code)
-        .limit(10)
         .all()
     )
     desc_map = {r.violation_code: r.description for r in desc_rows}
-    _sev_map  = {r.violation_code: (r.severity or 'minor') for r in _top_codes}
 
     _sev_prefix = re.compile(r'^(High Priority|Intermediate|Basic)\s*[-:]\s*', re.IGNORECASE)
     _instance_flags = re.compile(r'\s*\*\*(Corrected On-Site|Repeat Violation|Warning)\*\*', re.IGNORECASE)
@@ -104,29 +123,43 @@ def compute_region(region: str) -> dict | None:
     def _clean_desc(raw: str) -> str:
         """Strip severity prefix and inspection-instance notes, keep category text only."""
         s = _sev_prefix.sub('', raw).strip()
-        # Instance notes follow the standard description after ". " — keep first sentence only
         period_idx = s.find('. ')
         if period_idx != -1:
             s = s[:period_idx + 1]
         s = _instance_flags.sub('', s).strip().rstrip('.')
         return s or raw
 
+    def _fda_lookup(code: str) -> str:
+        """Try exact match, then strip subsection parentheses."""
+        if code in _FDA_DESC:
+            return _FDA_DESC[code]
+        base = re.sub(r'\([^)]+\)$', '', code).strip()
+        if base != code and base in _FDA_DESC:
+            return _FDA_DESC[base]
+        return ''
+
     seen_descs: set = set()
     top_violations = []
-    for r in _top_codes:
-        raw_desc = desc_map.get(r.violation_code) or r.violation_code or ''
-        desc = _clean_desc(raw_desc)
-        # If description is still a terse section title, use our FDA code lookup
-        if len(desc) < 40 and r.violation_code and r.violation_code in _FDA_DESC:
-            desc = _FDA_DESC[r.violation_code]
+    for code, total_cnt in _ranked:
+        raw_desc = desc_map.get(code, '')
+        desc = _clean_desc(raw_desc) if raw_desc else ''
+        # If description is missing or still looks like a raw code, try FDA lookup
+        if not desc or len(desc) < 5 or desc == code:
+            desc = _fda_lookup(code)
+        elif len(desc) < 40:
+            fda = _fda_lookup(code)
+            if fda:
+                desc = fda
+        if not desc or desc == code:
+            continue  # skip entries we can't describe meaningfully
         if desc in seen_descs:
             continue
         seen_descs.add(desc)
         top_violations.append({
             'description': desc,
-            'severity':    _sev_map.get(r.violation_code, 'minor'),
-            'count':       int(r.cnt),
-            'pct':         round(r.cnt / total_inspections * 100, 1)
+            'severity':    _code_sev.get(code, 'minor'),
+            'count':       total_cnt,
+            'pct':         round(total_cnt / total_inspections * 100, 1)
                            if total_inspections > 0 else 0.0,
         })
         if len(top_violations) == 10:
