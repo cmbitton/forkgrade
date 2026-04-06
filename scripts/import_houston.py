@@ -71,6 +71,9 @@ REGION     = 'houston'
 STATE      = 'TX'
 DELAY      = 1.0   # seconds between requests (be polite; server is CF and rate-limits)
 
+# Ch. 47 = FOG (Fats, Oil & Grease) ordinance — grease trap inspections, not food safety
+_FOG_CODE_RE = re.compile(r'^(?:COH-)?47-')
+
 _HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
     'Accept':     'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -778,8 +781,18 @@ def write_to_db(records: list, app, db, Restaurant, Inspection, Violation):
                 existing[fid] = restaurant
                 new_r += 1
 
-            # ── Score and write inspection ────────────────────────────────────
+            # ── Skip FOG-only inspections ────────────────────────────────────
+            # Ch. 47 codes (e.g. 47-512(b), COH-47-512(b)) are grease-trap
+            # inspections, not food-safety.  Drop the record if it contains
+            # ONLY FOG violations — mixed records are kept as-is.
             violations = rec.get('violations', [])
+            if violations and all(
+                _FOG_CODE_RE.match(v['code']) for v in violations
+            ):
+                skipped += 1
+                continue
+
+            # ── Score and write inspection ────────────────────────────────────
             risk, score = compute_score(violations)
 
             # ── Skip / replace duplicate inspections ──────────────────────────
