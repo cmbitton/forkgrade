@@ -122,6 +122,24 @@ def compute_region(region: str) -> dict | None:
     )
     desc_map = {r.violation_code: r.description for r in desc_rows}
 
+    # Code-based overrides — checked first, by violation_code
+    _CODE_OVERRIDES = {
+        # Houston ordinance codes
+        "20-20(c)":             "Required permit or inspection report information not displayed",
+        "20-21.23(a)":          "Walls, ceilings, doors, or windows not maintained in good repair",
+        "20-21.10(a)":          "Equipment or utensils not made of safe, corrosion-resistant materials",
+        "20-21.11(a)(07)":      "Non-food contact surfaces not cleaned frequently enough",
+        "20-21.23(g)":          "Light fixtures, vent covers, or wall-mounted equipment not kept clean",
+        "20-21.22(a)":          "Floors not clean in food preparation, storage, or warewashing areas",
+        "20-21.21(b)":          "Outside openings not protected against entry of insects or pests",
+        "20-21.20(a)(03)":      "Waste containers or dumpsters not properly maintained or covered",
+        "20-21.03(b)(10)b":     "Ready-to-eat food not properly date-marked for time/temperature safety",
+        "20-21.10(m)":          "Plumbing fixtures not properly installed or maintained",
+        "20-21.12(g)":          "Sanitizer test kit not available or chemical sanitizer at wrong concentration",
+        "21-244(a)":            "Required no-smoking signs not posted",
+        "20-21.11(a)(08)c[04]": "Dry food contact surfaces not cleaned at required frequency",
+    }
+
     # Rephrase standard/requirement text as violation descriptions
     _DESC_OVERRIDES = {
         "Non-food contact surfaces clean":
@@ -196,11 +214,6 @@ def compute_region(region: str) -> dict | None:
             else:
                 s = first  # keep first sentence
         s = s.strip().rstrip('.')
-        # Cap long regulatory text at word boundary
-        if len(s) > 100:
-            idx = s.rfind(' ', 0, 100)
-            if idx > 40:
-                s = s[:idx].rstrip(' ,;/')
         if s:
             s = s[0].upper() + s[1:]
         return s or raw, embedded
@@ -254,15 +267,23 @@ def compute_region(region: str) -> dict | None:
     seen_word_sets: list = []
     top_violations = []
     for code, total_cnt in _ranked:
-        raw_desc = desc_map.get(code, '')
-        desc, embedded = _clean_desc(raw_desc) if raw_desc else ('', '')
-        # Apply overrides for requirement-phrased descriptions
-        desc = _DESC_OVERRIDES.get(desc, desc)
-        # Look up a better description from our mappings
-        better = _fl_lookup(code) or _fda_lookup(code) or _fda_lookup(embedded)
-        # Use better description when available and stored one is short/vague/long
-        if better and (not desc or len(desc) < 50 or len(desc) > 100 or desc == code):
-            desc = better
+        # 1. Code-based override (highest priority)
+        if code in _CODE_OVERRIDES:
+            desc = _CODE_OVERRIDES[code]
+        else:
+            raw_desc = desc_map.get(code, '')
+            desc, embedded = _clean_desc(raw_desc) if raw_desc else ('', '')
+            # 2. Description text overrides (Philly/RI requirement→violation rephrasing)
+            desc = _DESC_OVERRIDES.get(desc, desc)
+            # 3. FL item lookup or FDA code lookup
+            better = _fl_lookup(code) or _fda_lookup(code) or _fda_lookup(embedded)
+            if better and (not desc or len(desc) < 50 or len(desc) > 100 or desc == code):
+                desc = better
+            # 4. Last resort: cap long descriptions at word boundary
+            if len(desc) > 100:
+                idx = desc.rfind(' ', 0, 100)
+                if idx > 40:
+                    desc = desc[:idx].rstrip(' ,;/')
         if not desc or len(desc) < 5 or desc == code:
             continue
         if _similar_to_any(desc, seen_word_sets):
