@@ -1,5 +1,7 @@
 """Shared utility helpers."""
 
+import re
+
 from sqlalchemy import func
 from app.db import db
 from app.models.restaurant import Restaurant
@@ -114,7 +116,7 @@ def search_restaurants(q, region=None, sort='date', page=1, per_page=25):
         ))
         .filter(
             func.regexp_replace(Restaurant.name, r'[^a-zA-Z0-9 ]', '', 'g').ilike(
-                f"%{q.replace(chr(39), '').replace('-', ' ')}%"
+                f"%{re.sub(r'[^a-zA-Z0-9 ]', '', q)}%"
             )
         )
     )
