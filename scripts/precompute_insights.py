@@ -138,7 +138,27 @@ def compute_region(region: str) -> dict | None:
             return _FDA_DESC[base]
         return ''
 
-    seen_descs: set = set()
+    _STOP = frozenset('a an the of or and not no is are in at to for from by on with other'.split())
+
+    def _desc_words(desc: str) -> frozenset:
+        return frozenset(
+            w for w in re.sub(r'[^a-z\s]', '', desc.lower()).split()
+            if w not in _STOP and len(w) > 2
+        )
+
+    def _similar_to_any(desc: str, seen: list) -> bool:
+        words = _desc_words(desc)
+        if len(words) < 2:
+            return False
+        for sw in seen:
+            if not sw:
+                continue
+            overlap = len(words & sw)
+            if overlap >= 2 and overlap / min(len(words), len(sw)) >= 0.5:
+                return True
+        return False
+
+    seen_word_sets: list = []
     top_violations = []
     for code, total_cnt in _ranked:
         raw_desc = desc_map.get(code, '')
@@ -149,9 +169,9 @@ def compute_region(region: str) -> dict | None:
             desc = fda
         if not desc or len(desc) < 5 or desc == code:
             continue  # skip entries we can't describe meaningfully
-        if desc in seen_descs:
+        if _similar_to_any(desc, seen_word_sets):
             continue
-        seen_descs.add(desc)
+        seen_word_sets.append(_desc_words(desc))
         top_violations.append({
             'description': desc,
             'severity':    _code_sev.get(code, 'minor'),
