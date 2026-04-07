@@ -1,0 +1,20 @@
+name: Florida Portal Gap Fill
+
+on:
+  schedule:
+    - cron: '0 8 1 * *'  # 1st of every month, 8:00 UTC = 3 AM EST / 4 AM EDT
+  workflow_dispatch:       # allow manual runs
+
+jobs:
+  gap-fill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+
+    steps:
+      - name: Install flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Fill missing Florida inspections from portal
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: flyctl ssh console -a forkgrade -C "bash -c 'nice -n 10 python3 -u scripts/fill_florida_gaps.py && nice -n 10 python3 -u scripts/precompute_insights.py florida'"
