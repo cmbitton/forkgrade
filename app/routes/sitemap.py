@@ -113,7 +113,7 @@ def sitemap_index():
         return _xml_response('\n'.join(lines))
 
 
-_SITEMAP_PAGE_SIZE = 40000  # stay under Google's 50k URL limit per file
+_SITEMAP_PAGE_SIZE = 30000  # stay well under Google's 50k URL limit (page 1 also has static pages)
 
 
 def _build_region_sitemap_lines(base_url, region, slugs_with_dates,
