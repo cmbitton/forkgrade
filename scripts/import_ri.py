@@ -294,6 +294,8 @@ def import_inspections(restaurant_id, source_id, since_date=None):
 
     added = 0
     for insp_data in data:
+        if not insp_data:
+            continue
         raw_date  = insp_data.get("columns", {}).get("0", "")
         insp_date = parse_date(raw_date.replace("Inspection Date:", "").strip())
         if not insp_date:
