@@ -123,6 +123,14 @@ def fetch_json(url, retries=3):
         except urllib.error.HTTPError as e:
             if e.code == 404:
                 return []
+            if e.code >= 500 and attempt < retries - 1:
+                wait = 2 ** (attempt + 1)
+                print(f"  Server error {e.code}, retrying in {wait}s...")
+                time.sleep(wait)
+                continue
+            if e.code >= 500:
+                print(f"  Server error {e.code} after {retries} attempts, skipping.")
+                return None
             raise
         except (TimeoutError, OSError) as e:
             if attempt < retries - 1:
