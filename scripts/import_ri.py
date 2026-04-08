@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """
-Rhode Island health inspection importer — incremental daily sync and full rescrape.
+Rhode Island health inspection importer — incremental daily sync, full sync, and rescrape.
 
 Usage:
     python3 scripts/import_ri.py              # sync last 5 days (default)
     python3 scripts/import_ri.py --days=3     # sync last N days
+    python3 scripts/import_ri.py --full-sync  # check ALL existing restaurants for missing inspections
     python3 scripts/import_ri.py --rescrape   # re-fetch HTML codes for all existing RI data,
                                               # update only inspections whose score changes
     python3 scripts/import_ri.py --rescrape --dry-run  # preview without writing
@@ -481,11 +482,92 @@ def rescrape_ri(dry_run=False, skip=0):
         print(f"  {total_skipped:,} restaurants skipped (API returned nothing or connection error)")
 
 
+def full_sync_ri(skip=0):
+    """
+    Check ALL existing RI restaurants for missing inspections.
+
+    Unlike --days=N which only finds facilities inspected recently, this iterates
+    every known restaurant and asks the API for its full inspection history.
+    import_inspections() deduplicates, so only truly missing inspections are added.
+
+    Use this weekly to catch retroactively-added inspections that the daily
+    refresh window misses.
+    """
+    from sqlalchemy import func
+    from sqlalchemy.exc import OperationalError
+
+    app = create_app()
+    with app.app_context():
+        restaurants = (
+            Restaurant.query
+            .filter_by(region="rhode-island")
+            .filter(Restaurant.source_id.isnot(None))
+            .order_by(Restaurant.id)
+            .all()
+        )
+
+        total = len(restaurants)
+        if skip:
+            print(f"Skipping first {skip} restaurants (resume mode).")
+        print(f"Full sync: checking {total - skip} of {total} RI restaurants for missing inspections...")
+        sys.stdout.flush()
+
+        updated       = 0
+        insp_added    = 0
+        skipped       = 0
+
+        for idx, restaurant in enumerate(restaurants):
+            if idx < skip:
+                continue
+
+            source_id = str(restaurant.source_id)
+            try:
+                n = import_inspections(restaurant.id, source_id, since_date=None)
+            except OperationalError as exc:
+                print(f"\n  DB error at idx={idx} ({restaurant.name}): {exc}")
+                try:
+                    db.session.rollback()
+                except Exception:
+                    pass
+                db.engine.dispose()
+                print(f"  Reconnected. Skipping restaurant.")
+                print(f"  TIP: re-run with --skip={idx} to retry from this point.")
+                skipped += 1
+                time.sleep(2)
+                continue
+
+            if n:
+                new_latest = db.session.query(func.max(Inspection.inspection_date)).filter(
+                    Inspection.restaurant_id == restaurant.id
+                ).scalar()
+                restaurant.latest_inspection_date = new_latest
+                restaurant.ai_summary = None
+                db.session.commit()
+                insp_added += n
+                updated    += 1
+                print(f"  {restaurant.name} — +{n} inspection{'s' if n > 1 else ''}")
+
+            if (idx + 1) % 50 == 0:
+                db.session.commit()
+            if (idx + 1) % 100 == 0:
+                print(f"  [{idx+1}/{total}] {updated} updated, {insp_added} inspections added so far...")
+                sys.stdout.flush()
+
+            time.sleep(0.3)
+
+        db.session.commit()
+        print(f"\nFull sync complete:")
+        print(f"  {updated} restaurants had missing inspections")
+        print(f"  {insp_added} inspections added")
+        print(f"  {skipped} restaurants skipped (errors)")
+
+
 def main():
     days    = 5
     skip    = 0
-    rescrape = '--rescrape' in sys.argv
-    dry_run  = '--dry-run'  in sys.argv
+    rescrape  = '--rescrape'  in sys.argv
+    full_sync = '--full-sync' in sys.argv
+    dry_run   = '--dry-run'   in sys.argv
     for arg in sys.argv[1:]:
         if arg.startswith('--days='):
             days = int(arg.split('=', 1)[1])
@@ -494,6 +576,10 @@ def main():
 
     if rescrape:
         rescrape_ri(dry_run=dry_run, skip=skip)
+        return
+
+    if full_sync:
+        full_sync_ri(skip=skip)
         return
 
     facilities = fetch_recent_facilities(days)
