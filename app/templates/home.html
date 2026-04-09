@@ -40,14 +40,17 @@
         <div class="section-header">
             <h2>Available Regions</h2>
         </div>
-        <div class="regions-grid">
+        <div class="regions-grid" id="regions-grid">
             {% for item in regions %}
-            <a href="/{{ item.region }}/" class="region-card">
+            <a href="/{{ item.region }}/" class="region-card{% if loop.index > 4 %} region-card--overflow{% endif %}">
                 <h3>{{ item.region | region_display }}</h3>
                 <p>{{ item.count }} location{{ 's' if item.count != 1 else '' }}</p>
             </a>
             {% endfor %}
         </div>
+        {% if regions|length > 4 %}
+        <button class="regions-toggle" id="regions-toggle" onclick="document.getElementById('regions-grid').classList.toggle('regions-expanded');var b=this;b.textContent=b.textContent.indexOf('Show')!==-1?'Show less':'Show all {{ regions|length }} regions'">Show all {{ regions|length }} regions</button>
+        {% endif %}
     </div>
     {% endif %}
 
