@@ -38,6 +38,16 @@ REGION_INFO = {
         'state_abbr': 'FL',
         'aliases': ['FL'],
     },
+    'chicago': {
+        'display': 'Chicago',
+        'state_abbr': 'IL',
+        'aliases': ['CHI', 'IL', 'Illinois'],
+    },
+    'boston': {
+        'display': 'Boston',
+        'state_abbr': 'MA',
+        'aliases': ['BOS', 'MA', 'Massachusetts'],
+    },
 }
 
 

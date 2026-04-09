@@ -53,7 +53,7 @@ Rules:
 - Vary your sentence structure and opening words\
 """
 
-DEFAULT_WORKERS   = 20
+DEFAULT_WORKERS   = 40
 DB_BATCH_SIZE     = 500   # restaurants loaded from DB per batch
 COMMIT_EVERY      = 100   # commit to DB every N summaries generated
 
