@@ -49,7 +49,7 @@
             {% endfor %}
         </div>
         {% if regions|length > 4 %}
-        <button class="regions-toggle" id="regions-toggle" onclick="document.getElementById('regions-grid').classList.toggle('regions-expanded');var b=this;b.textContent=b.textContent.indexOf('Show')!==-1?'Show less':'Show all {{ regions|length }} regions'">Show all {{ regions|length }} regions</button>
+        <button class="regions-toggle" id="regions-toggle" onclick="var g=document.getElementById('regions-grid');g.classList.toggle('regions-expanded');this.textContent=g.classList.contains('regions-expanded')?'Show less':'Show all {{ regions|length }} regions'">Show all {{ regions|length }} regions</button>
         {% endif %}
     </div>
     {% endif %}
