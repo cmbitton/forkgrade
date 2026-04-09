@@ -410,9 +410,9 @@ def _get(opener, url: str, retries: int = 3) -> str:
             with opener.open(req, timeout=25) as r:
                 return r.read().decode('utf-8', errors='replace')
         except urllib.error.HTTPError as exc:
-            if exc.code == 503 and attempt < retries - 1:
+            if exc.code in (502, 503) and attempt < retries - 1:
                 wait = 2 ** (attempt + 1)
-                print(f"  503 on attempt {attempt+1}, retrying in {wait}s...")
+                print(f"  {exc.code} on attempt {attempt+1}, retrying in {wait}s...")
                 time.sleep(wait)
                 continue
             raise
@@ -717,7 +717,7 @@ def fetch_detail(opener, jar, facility_id: str, inspection_id: str, sd: str, ed:
             except Exception:
                 body = '(could not read body)'
             print(f"  DEBUG HTTP {exc.code} body:\n{body}\n")
-        if exc.code in (403, 404, 500, 503):
+        if exc.code in (403, 404, 500, 502, 503):
             return None
         raise
     except Exception as exc:
