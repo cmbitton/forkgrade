@@ -152,6 +152,16 @@ def _cuisine_rows(region, cuisine_type, city_name=None, sort='date', page=1, per
         return hit
 
     t0 = time.monotonic()
+
+    # Count on restaurants table only — no outerjoin needed
+    count_q = Restaurant.query.filter(
+        Restaurant.region == region,
+        Restaurant.cuisine_type == cuisine_type,
+    )
+    if city_name:
+        count_q = count_q.filter(Restaurant.city == city_name)
+    total = count_q.count()
+
     q = (
         db.session.query(Restaurant, Inspection)
         .outerjoin(
@@ -183,7 +193,6 @@ def _cuisine_rows(region, cuisine_type, city_name=None, sort='date', page=1, per
             Inspection.inspection_date.desc(),
         )
 
-    total = q.count()
     rows = q.offset((page - 1) * per_page).limit(per_page).all()
     result = (rows, total)
     stored = cache.set(cache_key, result, timeout=300)
@@ -509,6 +518,17 @@ def region_sub(region, path_slug):
         if cached:
             rows, total = cached
         else:
+            # Count on restaurants table only — no JOIN needed, uses (region, city) index
+            total = (
+                Restaurant.query
+                .filter(
+                    Restaurant.region == region,
+                    Restaurant.city == city_name,
+                    Restaurant.latest_inspection_date.isnot(None),
+                )
+                .count()
+            )
+
             q = (
                 db.session.query(Restaurant, Inspection)
                 .outerjoin(
@@ -537,7 +557,6 @@ def region_sub(region, path_slug):
                     db.case((Inspection.inspection_date.is_(None), 1), else_=0),
                     Inspection.inspection_date.desc(),
                 )
-            total = q.count()
             rows = q.offset((page - 1) * per_page).limit(per_page).all()
             cache.set(city_cache_key, (rows, total), timeout=300)
 

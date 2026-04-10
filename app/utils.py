@@ -129,6 +129,14 @@ def search_restaurants(q, region=None, sort='date', page=1, per_page=25):
     # ILIKE directly on name — no regexp_replace, no per-row function eval.
     # Postgres can use a pg_trgm GIN index if one exists; even without one,
     # plain ILIKE is far cheaper than regexp_replace + ILIKE.
+    name_filters = db.and_(*(Restaurant.name.ilike(f'%{t}%') for t in tokens))
+
+    # Count on restaurants only — no outerjoin needed
+    count_q = Restaurant.query.filter(name_filters)
+    if region:
+        count_q = count_q.filter(Restaurant.region == region)
+    total = count_q.count()
+
     query = (
         db.session.query(Restaurant, Inspection)
         .outerjoin(Inspection, db.and_(
@@ -136,7 +144,7 @@ def search_restaurants(q, region=None, sort='date', page=1, per_page=25):
             Inspection.inspection_date == Restaurant.latest_inspection_date,
             Inspection.not_future(),
         ))
-        .filter(db.and_(*(Restaurant.name.ilike(f'%{t}%') for t in tokens)))
+        .filter(name_filters)
     )
 
     if region:
@@ -155,6 +163,5 @@ def search_restaurants(q, region=None, sort='date', page=1, per_page=25):
             Inspection.inspection_date.desc(),
         )
 
-    total = query.count()
     rows = query.offset((page - 1) * per_page).limit(per_page).all()
     return rows, total
