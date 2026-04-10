@@ -275,7 +275,13 @@ def write_to_db(rows, app, db, Restaurant, Inspection, Violation):
 
         for idx, row in enumerate(rows):
             license_num = (row.get('license_') or '').strip()
-            name = (row.get('dba_name') or row.get('aka_name') or '').strip()
+            dba = (row.get('dba_name') or '').strip()
+            aka = (row.get('aka_name') or '').strip()
+            name = dba or aka
+            # Append aka_name when it meaningfully differs from dba_name
+            # (e.g. hotel with multiple kitchens: "Trump International Hotel — Sixteen")
+            if dba and aka and aka.upper() != dba.upper():
+                name = f"{dba} — {aka}"
             if not name or not license_num:
                 skipped += 1
                 continue
@@ -297,6 +303,10 @@ def write_to_db(rows, app, db, Restaurant, Inspection, Violation):
             # Get or create restaurant
             if license_num in existing:
                 restaurant = existing[license_num]
+                # Back-fill aka_name subtitle for restaurants that were
+                # imported before we started capturing it.
+                if '—' not in (restaurant.name or '') and '—' in name:
+                    restaurant.name = name
             else:
                 slug = unique_slug(make_slug(name), seen_slugs)
                 restaurant = Restaurant(
