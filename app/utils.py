@@ -126,8 +126,9 @@ def search_restaurants(q, region=None, sort='date', page=1, per_page=25):
     if not tokens:
         return [], 0
 
-    cleaned_name = func.regexp_replace(Restaurant.name, r'[^a-zA-Z0-9 ]', '', 'g')
-
+    # ILIKE directly on name — no regexp_replace, no per-row function eval.
+    # Postgres can use a pg_trgm GIN index if one exists; even without one,
+    # plain ILIKE is far cheaper than regexp_replace + ILIKE.
     query = (
         db.session.query(Restaurant, Inspection)
         .outerjoin(Inspection, db.and_(
@@ -135,7 +136,7 @@ def search_restaurants(q, region=None, sort='date', page=1, per_page=25):
             Inspection.inspection_date == Restaurant.latest_inspection_date,
             Inspection.not_future(),
         ))
-        .filter(db.and_(*(cleaned_name.ilike(f'%{t}%') for t in tokens)))
+        .filter(db.and_(*(Restaurant.name.ilike(f'%{t}%') for t in tokens)))
     )
 
     if region:

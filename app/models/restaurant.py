@@ -75,6 +75,10 @@ class Restaurant(db.Model):
         db.Index('ix_restaurants_region_state', 'region', 'state'),
         db.Index('ix_restaurants_region_state_city', 'region', 'state', 'city'),
         db.Index('ix_restaurants_region_latest_date', 'region', 'latest_inspection_date'),
+        db.Index('ix_restaurants_region_lat_lng', 'region', 'latitude', 'longitude'),
+        db.Index('ix_restaurants_name_trgm', 'name',
+                 postgresql_using='gin',
+                 postgresql_ops={'name': 'gin_trgm_ops'}),
     )
 
     inspections = db.relationship(

@@ -504,36 +504,42 @@ def region_sub(region, path_slug):
         page = max(1, int(request.args.get('page', 1) or 1))
         per_page = 25
 
-        q = (
-            db.session.query(Restaurant, Inspection)
-            .outerjoin(
-                Inspection,
-                db.and_(
-                    Inspection.restaurant_id == Restaurant.id,
-                    Inspection.inspection_date == Restaurant.latest_inspection_date,
-                    Inspection.not_future(),
+        city_cache_key = f'city_page_{region}_{path_slug}_{sort}_{page}'
+        cached = cache.get(city_cache_key)
+        if cached:
+            rows, total = cached
+        else:
+            q = (
+                db.session.query(Restaurant, Inspection)
+                .outerjoin(
+                    Inspection,
+                    db.and_(
+                        Inspection.restaurant_id == Restaurant.id,
+                        Inspection.inspection_date == Restaurant.latest_inspection_date,
+                        Inspection.not_future(),
+                    )
+                )
+                .filter(
+                    Restaurant.region == region,
+                    Restaurant.city == city_name,
+                    Restaurant.latest_inspection_date.isnot(None),
                 )
             )
-            .filter(
-                Restaurant.region == region,
-                Restaurant.city == city_name,
-                Restaurant.latest_inspection_date.isnot(None),
-            )
-        )
-        if sort == 'score':
-            q = q.order_by(
-                db.case((Inspection.risk_score.is_(None), 1), else_=0),
-                Inspection.risk_score.asc(),
-            )
-        elif sort == 'name':
-            q = q.order_by(Restaurant.name.asc())
-        else:  # date (default)
-            q = q.order_by(
-                db.case((Inspection.inspection_date.is_(None), 1), else_=0),
-                Inspection.inspection_date.desc(),
-            )
-        total = q.count()
-        rows = q.offset((page - 1) * per_page).limit(per_page).all()
+            if sort == 'score':
+                q = q.order_by(
+                    db.case((Inspection.risk_score.is_(None), 1), else_=0),
+                    Inspection.risk_score.asc(),
+                )
+            elif sort == 'name':
+                q = q.order_by(Restaurant.name.asc())
+            else:  # date (default)
+                q = q.order_by(
+                    db.case((Inspection.inspection_date.is_(None), 1), else_=0),
+                    Inspection.inspection_date.desc(),
+                )
+            total = q.count()
+            rows = q.offset((page - 1) * per_page).limit(per_page).all()
+            cache.set(city_cache_key, (rows, total), timeout=300)
 
         return render_neighborhood(region, path_slug, city_name, rows,
                                    sort=sort, page=page, per_page=per_page, total=total)
