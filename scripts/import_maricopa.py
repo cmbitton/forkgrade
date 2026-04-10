@@ -706,6 +706,24 @@ def run_full_import(dry_run: bool, app, db, Restaurant, Inspection, Violation,
     permits = discover_permits()
     print(f'  Total FD permits discovered: {len(permits)}')
 
+    # Detect multi-permit locations (e.g. hotel with bar + kitchen) and
+    # append permit ID to the name so they're distinguishable on the site.
+    from collections import Counter
+    loc_counts = Counter(
+        ((v['name'] or '').strip().upper(), (v['address'] or '').strip().upper())
+        for v in permits.values()
+    )
+    multi_permit_locs = {k for k, cnt in loc_counts.items() if cnt > 1}
+    tagged = 0
+    for pid, info in permits.items():
+        key = ((info['name'] or '').strip().upper(),
+               (info['address'] or '').strip().upper())
+        if key in multi_permit_locs:
+            info['name'] = f"{info['name']} — {pid}"
+            tagged += 1
+    if tagged:
+        print(f'  Tagged {tagged} permits at shared locations with permit ID')
+
     if limit:
         permits = dict(list(permits.items())[:limit])
         print(f'  (limited to first {limit} permits for testing)')
@@ -783,6 +801,9 @@ def run_full_import(dry_run: bool, app, db, Restaurant, Inspection, Violation,
 
                 if permit_id in existing:
                     restaurant = existing[permit_id]
+                    # Back-fill permit ID subtitle for shared locations
+                    if '—' not in (restaurant.name or '') and '—' in name:
+                        restaurant.name = name
                 else:
                     street, city, state, zip5 = parse_address(info['address'])
                     slug = unique_slug(make_slug(name, city), seen_slugs)
