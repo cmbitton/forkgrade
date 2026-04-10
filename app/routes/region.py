@@ -153,47 +153,64 @@ def _cuisine_rows(region, cuisine_type, city_name=None, sort='date', page=1, per
 
     t0 = time.monotonic()
 
-    # Count on restaurants table only — no outerjoin needed
-    count_q = Restaurant.query.filter(
+    # Phase 1: count + sort/paginate on restaurants table only (indexed, fast)
+    base_filters = [
         Restaurant.region == region,
         Restaurant.cuisine_type == cuisine_type,
-    )
+    ]
     if city_name:
-        count_q = count_q.filter(Restaurant.city == city_name)
-    total = count_q.count()
+        base_filters.append(Restaurant.city == city_name)
+    total = Restaurant.query.filter(*base_filters).count()
 
-    q = (
-        db.session.query(Restaurant, Inspection)
-        .outerjoin(
-            Inspection,
-            db.and_(
+    rq = Restaurant.query.filter(*base_filters)
+    if sort == 'score':
+        score_sub = (
+            db.session.query(Inspection.risk_score)
+            .filter(
                 Inspection.restaurant_id == Restaurant.id,
                 Inspection.inspection_date == Restaurant.latest_inspection_date,
-                Inspection.not_future(),
             )
+            .correlate(Restaurant)
+            .limit(1)
+            .scalar_subquery()
         )
-        .filter(
-            Restaurant.region == region,
-            Restaurant.cuisine_type == cuisine_type,
-        )
-    )
-    if city_name:
-        q = q.filter(Restaurant.city == city_name)
-
-    if sort == 'score':
-        q = q.order_by(
-            db.case((Inspection.risk_score.is_(None), 1), else_=0),
-            Inspection.risk_score.asc(),
+        rq = rq.order_by(
+            db.case((score_sub.is_(None), 1), else_=0),
+            score_sub.asc(),
         )
     elif sort == 'name':
-        q = q.order_by(Restaurant.name.asc())
+        rq = rq.order_by(Restaurant.name.asc())
     else:  # date (default)
-        q = q.order_by(
-            db.case((Inspection.inspection_date.is_(None), 1), else_=0),
-            Inspection.inspection_date.desc(),
+        rq = rq.order_by(
+            db.case((Restaurant.latest_inspection_date.is_(None), 1), else_=0),
+            Restaurant.latest_inspection_date.desc(),
         )
 
-    rows = q.offset((page - 1) * per_page).limit(per_page).all()
+    page_ids = [r.id for r in rq.with_entities(Restaurant.id)
+                .offset((page - 1) * per_page).limit(per_page).all()]
+
+    # Phase 2: join only the paginated slice with inspections
+    if page_ids:
+        id_order = db.case(
+            {rid: i for i, rid in enumerate(page_ids)},
+            value=Restaurant.id,
+        )
+        rows = (
+            db.session.query(Restaurant, Inspection)
+            .outerjoin(
+                Inspection,
+                db.and_(
+                    Inspection.restaurant_id == Restaurant.id,
+                    Inspection.inspection_date == Restaurant.latest_inspection_date,
+                    Inspection.not_future(),
+                )
+            )
+            .filter(Restaurant.id.in_(page_ids))
+            .order_by(id_order)
+            .all()
+        )
+    else:
+        rows = []
     result = (rows, total)
     stored = cache.set(cache_key, result, timeout=300)
     _log.info('_cuisine_rows queried in %.0fms, total=%d, cache.set=%s',
@@ -517,46 +534,61 @@ def region_sub(region, path_slug):
         if cached:
             rows, total = cached
         else:
-            # Count on restaurants table only — no JOIN needed, uses (region, city) index
-            total = (
-                Restaurant.query
-                .filter(
-                    Restaurant.region == region,
-                    Restaurant.city == city_name,
-                    Restaurant.latest_inspection_date.isnot(None),
-                )
-                .count()
-            )
+            # Phase 1: count + sort/paginate on restaurants table only (indexed, fast)
+            base_filter = [
+                Restaurant.region == region,
+                Restaurant.city == city_name,
+                Restaurant.latest_inspection_date.isnot(None),
+            ]
+            total = Restaurant.query.filter(*base_filter).count()
 
-            q = (
-                db.session.query(Restaurant, Inspection)
-                .outerjoin(
-                    Inspection,
-                    db.and_(
+            rq = Restaurant.query.filter(*base_filter)
+            if sort == 'score':
+                # Need inspection data for score sort — use subquery
+                score_sub = (
+                    db.session.query(Inspection.restaurant_id, Inspection.risk_score)
+                    .filter(
                         Inspection.restaurant_id == Restaurant.id,
                         Inspection.inspection_date == Restaurant.latest_inspection_date,
-                        Inspection.not_future(),
                     )
+                    .correlate(Restaurant)
+                    .limit(1)
+                    .scalar_subquery()
                 )
-                .filter(
-                    Restaurant.region == region,
-                    Restaurant.city == city_name,
-                    Restaurant.latest_inspection_date.isnot(None),
-                )
-            )
-            if sort == 'score':
-                q = q.order_by(
-                    db.case((Inspection.risk_score.is_(None), 1), else_=0),
-                    Inspection.risk_score.asc(),
+                rq = rq.order_by(
+                    db.case((score_sub.is_(None), 1), else_=0),
+                    score_sub.asc(),
                 )
             elif sort == 'name':
-                q = q.order_by(Restaurant.name.asc())
-            else:  # date (default)
-                q = q.order_by(
-                    db.case((Inspection.inspection_date.is_(None), 1), else_=0),
-                    Inspection.inspection_date.desc(),
+                rq = rq.order_by(Restaurant.name.asc())
+            else:  # date (default) — sort on denormalized column, fully indexed
+                rq = rq.order_by(Restaurant.latest_inspection_date.desc())
+
+            page_ids = [r.id for r in rq.with_entities(Restaurant.id)
+                        .offset((page - 1) * per_page).limit(per_page).all()]
+
+            # Phase 2: join only the 25 paginated restaurants with their inspections
+            if page_ids:
+                id_order = db.case(
+                    {rid: i for i, rid in enumerate(page_ids)},
+                    value=Restaurant.id,
                 )
-            rows = q.offset((page - 1) * per_page).limit(per_page).all()
+                rows = (
+                    db.session.query(Restaurant, Inspection)
+                    .outerjoin(
+                        Inspection,
+                        db.and_(
+                            Inspection.restaurant_id == Restaurant.id,
+                            Inspection.inspection_date == Restaurant.latest_inspection_date,
+                            Inspection.not_future(),
+                        )
+                    )
+                    .filter(Restaurant.id.in_(page_ids))
+                    .order_by(id_order)
+                    .all()
+                )
+            else:
+                rows = []
             cache.set(city_cache_key, (rows, total), timeout=300)
 
         return render_neighborhood(region, path_slug, city_name, rows,
