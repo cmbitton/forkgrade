@@ -446,6 +446,68 @@ HOUSTON_CODE_TITLES = {
 }
 
 
+FL_ITEM_TITLES: dict[str, str] = {
+    'FL-01': 'Supervisor/Person in Charge Present',
+    'FL-02': 'Certified Food Manager Identification',
+    'FL-03': 'Employee Health Policies Present',
+    'FL-04': 'Proper Use of Restriction and Exclusion',
+    'FL-05': 'Procedures for Responding to Vomiting/Diarrheal Events',
+    'FL-06': 'Proper Eating, Tasting, Drinking, or Tobacco Use',
+    'FL-07': 'No Discharge from Eyes, Nose, and Mouth',
+    'FL-08': 'Hands Clean and Properly Washed',
+    'FL-09': 'No Bare Hand Contact with Ready-to-Eat Food',
+    'FL-10': 'Adequate Handwashing Facilities Supplied and Accessible',
+    'FL-11': 'Food Obtained from Approved Sources',
+    'FL-12': 'Food Received at Proper Temperature',
+    'FL-13': 'Food in Good Condition, Safe, and Unadulterated',
+    'FL-14': 'Required Records Available; Shellstock Tags/Labels',
+    'FL-15': 'Proper Date Marking and Disposition',
+    'FL-16': 'Potentially Hazardous Food Held at Proper Temperature',
+    'FL-17': 'Proper Cooling Time and Temperature',
+    'FL-18': 'Proper Cooking Temperatures for PHF',
+    'FL-19': 'Consumer Advisory Posted for Raw/Undercooked Animal Foods',
+    'FL-20': 'Variance/Specialized Process/HACCP Plan in Place',
+    'FL-21': 'Proper Hot and Cold Holding Temperatures',
+    'FL-22': 'Food Contact Surfaces Clean and Sanitized',
+    'FL-23': 'Non-Food Contact Surfaces Clean',
+    'FL-24': 'Warewashing Facilities Maintained and Used',
+    'FL-25': 'Hot and Cold Water Available; Adequate Pressure',
+    'FL-26': 'Toilet Facilities Constructed, Supplied, Cleaned',
+    'FL-27': 'Sewage and Wastewater Properly Disposed',
+    'FL-28': 'Plumbing Installed; Proper Backflow Devices',
+    'FL-29': 'Equipment Adequate to Maintain Product Temperature',
+    'FL-30': 'Food Storage Containers Properly Identified',
+    'FL-31': 'Approved Thawing Methods Used',
+    'FL-32': 'Toxic Substances Properly Identified, Stored, Used',
+    'FL-33': 'Proper Sanitizer Contact Time and Concentration',
+    'FL-34': 'Equipment and Utensils Maintained in Good Repair',
+    'FL-35': 'Equipment, Food and Non-Food Contact Surfaces Approved',
+    'FL-36': 'Lighting Adequate; Required Shields in Place',
+    'FL-37': 'Ventilation and Filters Clean and Operable',
+    'FL-38': 'Insects, Rodents, and Animals Not Present',
+    'FL-39': 'Contamination Prevented During Preparation/Storage',
+    'FL-40': 'Personal Cleanliness',
+    'FL-41': 'Wiping Cloths Properly Used and Stored',
+    'FL-42': 'Washing Fruits and Vegetables',
+    'FL-43': 'In-Use Utensils Properly Stored',
+    'FL-44': 'Utensils, Equipment, and Linens Properly Stored and Dried',
+    'FL-45': 'Single-Use/Single-Service Articles Properly Stored and Used',
+    'FL-46': 'Food Temperature Measuring Devices Provided and Accurate',
+    'FL-47': 'Raw Animal Food Properly Separated from Each Other and RTE Food',
+    'FL-48': 'Food Properly Stored/Protected',
+    'FL-49': 'Non-Food Contact Surfaces Cleanable and Properly Maintained',
+    'FL-50': 'Food and Non-Food Contact Surfaces Designed and Constructed',
+    'FL-51': 'Plumbing Maintained; Sewage Disposal',
+    'FL-52': 'Floors, Walls, and Ceilings Clean and in Good Repair',
+    'FL-53': 'Toilet Rooms Maintained',
+    'FL-54': 'Garbage and Refuse Properly Disposed',
+    'FL-55': 'Physical Facilities Installed, Maintained, and Clean',
+    'FL-56': 'Unnecessary Items and Litter Not Present',
+    'FL-57': 'All Food Employees Have Food Handler Certificate',
+    'FL-58': 'Allergen Labeling/Menu Disclosure',
+}
+
+
 def code_short_title(code: str) -> str | None:
     """
     Return a plain-English violation description for an FDA Food Code section number.
@@ -459,6 +521,8 @@ def code_short_title(code: str) -> str | None:
     current = code.strip()
     if current in HOUSTON_CODE_TITLES:
         return HOUSTON_CODE_TITLES[current]
+    if current in FL_ITEM_TITLES:
+        return FL_ITEM_TITLES[current]
     import re as _re
     for _ in range(6):
         title = FDA_SHORT_TITLES.get(current)
