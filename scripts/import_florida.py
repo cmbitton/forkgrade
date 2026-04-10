@@ -524,7 +524,7 @@ def _csv_fallback_violations(rec: dict) -> list[dict]:
 # ── DB write ──────────────────────────────────────────────────────────────────
 
 def write_batch(records: list[dict], dry_run: bool,
-                existing: dict, seen_slugs: set, known_insp: set,
+                existing: dict, by_location: dict, seen_slugs: set, known_insp: set,
                 db, Restaurant, Inspection, Violation) -> tuple[int, int, int]:
     new_r = new_i = skipped = 0
 
@@ -563,24 +563,33 @@ def write_batch(records: list[dict], dry_run: bool,
         if lic in existing:
             restaurant = existing[lic]
         else:
-            slug = _unique_slug(
-                _make_slug(rec['name'], rec['city']),
-                seen_slugs,
-            )
-            restaurant = Restaurant(
-                region    = REGION,
-                source_id = lic,
-                name      = rec['name'],
-                slug      = slug,
-                address   = rec['address'],
-                city      = rec['city'],
-                state     = 'FL',
-                zip       = rec.get('zipcode', '') or '',
-            )
-            db.session.add(restaurant)
-            db.session.flush()
-            existing[lic] = restaurant
-            new_r += 1
+            # Check for same location under a different license number
+            loc_key = (rec['name'].lower(), rec['address'].lower(),
+                       rec['city'].lower())
+            restaurant = by_location.get(loc_key)
+            if restaurant:
+                # Alias this license to the existing restaurant
+                existing[lic] = restaurant
+            else:
+                slug = _unique_slug(
+                    _make_slug(rec['name'], rec['city']),
+                    seen_slugs,
+                )
+                restaurant = Restaurant(
+                    region    = REGION,
+                    source_id = lic,
+                    name      = rec['name'],
+                    slug      = slug,
+                    address   = rec['address'],
+                    city      = rec['city'],
+                    state     = 'FL',
+                    zip       = rec.get('zipcode', '') or '',
+                )
+                db.session.add(restaurant)
+                db.session.flush()
+                existing[lic] = restaurant
+                by_location[loc_key] = restaurant
+                new_r += 1
 
         known_insp.add(insp_num)
 
@@ -628,11 +637,19 @@ def run_import(sources: list[tuple[str, str]], dry_run: bool, skip_portal: bool,
 
     with app.app_context():
         # Pre-load all FL restaurants once — shared across all district files
-        existing = {
-            r.source_id: r
-            for r in Restaurant.query.filter_by(region=REGION)
-                                     .filter(Restaurant.source_id.isnot(None)).all()
-        }
+        all_fl = Restaurant.query.filter_by(region=REGION) \
+                                 .filter(Restaurant.source_id.isnot(None)).all()
+        existing = {r.source_id: r for r in all_fl}
+
+        # Secondary dedup: (lower name, lower address, lower city) → restaurant
+        # Prevents duplicates when the same location has multiple license numbers.
+        by_location: dict[tuple[str, str, str], 'Restaurant'] = {}
+        for r in all_fl:
+            key = ((r.name or '').lower(), (r.address or '').lower(),
+                   (r.city or '').lower())
+            by_location[key] = r
+        del all_fl
+
         seen_slugs = {
             row[0] for row in db.session.execute(
                 db.text('SELECT slug FROM restaurants WHERE slug IS NOT NULL')
@@ -656,7 +673,7 @@ def run_import(sources: list[tuple[str, str]], dry_run: bool, skip_portal: bool,
         def _flush(batch: list[dict]) -> tuple[int, int, int]:
             nonlocal total_r, total_i, total_skip
             new_r, new_i, skip = write_batch(
-                batch, dry_run, existing, seen_slugs, known_insp,
+                batch, dry_run, existing, by_location, seen_slugs, known_insp,
                 db, Restaurant, Inspection, Violation,
             )
             if not dry_run:
