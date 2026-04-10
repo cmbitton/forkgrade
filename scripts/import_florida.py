@@ -524,7 +524,8 @@ def _csv_fallback_violations(rec: dict) -> list[dict]:
 # ── DB write ──────────────────────────────────────────────────────────────────
 
 def write_batch(records: list[dict], dry_run: bool,
-                existing: dict, by_location: dict, seen_slugs: set, known_insp: set,
+                existing: dict, by_location: dict, seen_slugs: set,
+                known_insp: set, known_insp_keys: set,
                 db, Restaurant, Inspection, Violation) -> tuple[int, int, int]:
     new_r = new_i = skipped = 0
 
@@ -592,6 +593,14 @@ def write_batch(records: list[dict], dry_run: bool,
                 new_r += 1
 
         known_insp.add(insp_num)
+
+        # Skip if this (restaurant, date, type) was already imported via
+        # a different source (e.g. portal gap-filler vs bulk CSV).
+        insp_key = (restaurant.id, rec['insp_date'], (rec['insp_type'] or '').strip())
+        if insp_key in known_insp_keys:
+            skipped += 1
+            continue
+        known_insp_keys.add(insp_key)
 
         insp = Inspection(
             restaurant_id   = restaurant.id,
@@ -665,15 +674,27 @@ def run_import(sources: list[tuple[str, str]], dry_run: bool, skip_portal: bool,
                     {'region': REGION}
                 ).fetchall()
             }
+            # Secondary dedup: (restaurant_id, date, type) catches inspections
+            # already imported via the portal gap-filler under a different source_id.
+            known_insp_keys = {
+                (rid, d, (t or '').strip())
+                for rid, d, t in db.session.execute(
+                    db.text('SELECT restaurant_id, inspection_date, inspection_type '
+                            'FROM inspections WHERE region = :region'),
+                    {'region': REGION}
+                ).fetchall()
+            }
         else:
             known_insp = set()
+            known_insp_keys = set()
 
         total_r = total_i = total_skip = 0
 
         def _flush(batch: list[dict]) -> tuple[int, int, int]:
             nonlocal total_r, total_i, total_skip
             new_r, new_i, skip = write_batch(
-                batch, dry_run, existing, by_location, seen_slugs, known_insp,
+                batch, dry_run, existing, by_location, seen_slugs,
+                known_insp, known_insp_keys,
                 db, Restaurant, Inspection, Violation,
             )
             if not dry_run:
