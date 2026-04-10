@@ -48,7 +48,7 @@
     {% if search_results is not none %}
     {{ render_search_results(
         search_results, search_total, search_sort, search_page, search_total_pages,
-        search_base_path, search_query, show_region=false
+        search_base_path, search_query, show_region=false, sort_dir=search_sort_dir
     ) }}
     {% endif %}
 

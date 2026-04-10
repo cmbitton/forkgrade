@@ -92,9 +92,10 @@ def index():
 
     if q:
         sort     = request.args.get('sort', 'date')
+        sort_dir = request.args.get('dir', {'date': 'desc', 'score': 'desc', 'name': 'asc'}.get(sort, 'desc'))
         page     = max(1, request.args.get('page', 1, type=int))
         per_page = 25
-        search_results, search_total = search_restaurants(q, sort=sort, page=page, per_page=per_page)
+        search_results, search_total = search_restaurants(q, sort=sort, sort_dir=sort_dir, page=page, per_page=per_page)
         total_pages = max(1, (search_total + per_page - 1) // per_page)
 
         return render_template(
@@ -106,6 +107,7 @@ def index():
             search_results=search_results,
             search_total=search_total,
             search_sort=sort,
+            search_sort_dir=sort_dir,
             search_page=page,
             search_total_pages=total_pages,
             search_base_path='/',

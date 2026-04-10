@@ -1,12 +1,14 @@
-{% macro render_pagination(page, total_pages, base_path, sort=none, qs_prefix=none) %}
+{% macro render_pagination(page, total_pages, base_path, sort=none, sort_dir=none, qs_prefix=none) %}
 {% if total_pages > 1 %}
 
 {#
   qs_prefix: if provided, used as the full query string prefix before page= (e.g. '?q=pizza&sort=date&')
-  Otherwise built from base_path + sort as before.
+  Otherwise built from base_path + sort + dir as before.
 #}
 {% if qs_prefix is not none %}
     {% set page_base = base_path ~ qs_prefix %}
+{% elif sort and sort_dir %}
+    {% set page_base = base_path ~ '?sort=' ~ sort ~ '&dir=' ~ sort_dir ~ '&' %}
 {% elif sort %}
     {% set page_base = base_path ~ '?sort=' ~ sort ~ '&' %}
 {% else %}

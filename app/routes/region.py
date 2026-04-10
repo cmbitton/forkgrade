@@ -22,6 +22,8 @@ _NON_RESTAURANT_TYPES = frozenset([
     'School / Childcare', 'Healthcare Facility', 'Grocery / Market', 'Catering'
 ])
 
+_SORT_DEFAULTS = {'date': 'desc', 'score': 'desc', 'name': 'asc'}
+
 
 def _scored_restaurants(region, order='asc', limit=5, days=None):
     """(Restaurant, Inspection) tuples sorted by risk_score, restaurants only."""
@@ -138,14 +140,17 @@ def _get_cuisine_types(region):
     return result
 
 
-def _cuisine_rows(region, cuisine_type, city_name=None, sort='date', page=1, per_page=25):
+def _cuisine_rows(region, cuisine_type, city_name=None, sort='date', sort_dir=None, page=1, per_page=25):
     """(Restaurant, Inspection|None) for a cuisine type, with sort and pagination.
 
     Returns (rows, total_count).
-    sort: 'date' (newest first), 'score' (best first), 'name' (A-Z)
-    Cached 5 min per unique (region, cuisine, city, sort, page) combination.
+    sort: 'date', 'score', 'name'
+    sort_dir: 'asc' or 'desc' (defaults per _SORT_DEFAULTS)
+    Cached 5 min per unique (region, cuisine, city, sort, sort_dir, page) combination.
     """
-    cache_key = f'cuisine_rows_{region}_{cuisine_type}_{city_name or ""}_{sort}_{page}'
+    if sort_dir is None:
+        sort_dir = _SORT_DEFAULTS.get(sort, 'desc')
+    cache_key = f'cuisine_rows_{region}_{cuisine_type}_{city_name or ""}_{sort}_{sort_dir}_{page}'
     hit = cache.get(cache_key)
     _log.info('_cuisine_rows cache %s | key=%r', 'HIT' if hit is not None else 'MISS', cache_key)
     if hit is not None:
@@ -174,16 +179,19 @@ def _cuisine_rows(region, cuisine_type, city_name=None, sort='date', page=1, per
             .limit(1)
             .scalar_subquery()
         )
+        # risk_score: lower = better. desc (default) = best first = ASC
+        score_col = score_sub.asc() if sort_dir == 'desc' else score_sub.desc()
         rq = rq.order_by(
             db.case((score_sub.is_(None), 1), else_=0),
-            score_sub.asc(),
+            score_col,
         )
     elif sort == 'name':
-        rq = rq.order_by(Restaurant.name.asc())
-    else:  # date (default)
+        rq = rq.order_by(Restaurant.name.asc() if sort_dir == 'asc' else Restaurant.name.desc())
+    else:  # date
+        date_col = Restaurant.latest_inspection_date.desc() if sort_dir == 'desc' else Restaurant.latest_inspection_date.asc()
         rq = rq.order_by(
             db.case((Restaurant.latest_inspection_date.is_(None), 1), else_=0),
-            Restaurant.latest_inspection_date.desc(),
+            date_col,
         )
 
     page_ids = [r.id for r in rq.with_entities(Restaurant.id)
@@ -220,7 +228,7 @@ def _cuisine_rows(region, cuisine_type, city_name=None, sort='date', page=1, per
 
 def render_cuisine(region, cuisine_slug_str, cuisine_label, rows,
                    city_name=None, city_slug_str=None,
-                   total=0, page=1, per_page=25, sort='date'):
+                   total=0, page=1, per_page=25, sort='date', sort_dir=None):
     site_name      = current_app.config['SITE_NAME']
     base_url       = current_app.config['BASE_URL']
     region_display = get_region_display(region)
@@ -251,6 +259,8 @@ def render_cuisine(region, cuisine_slug_str, cuisine_label, rows,
         ]
         base_path     = f'/{region}/{cuisine_slug_str}/'
 
+    if sort_dir is None:
+        sort_dir = _SORT_DEFAULTS.get(sort, 'desc')
     total_pages = max(1, (total + per_page - 1) // per_page)
 
     return render_template(
@@ -266,6 +276,7 @@ def render_cuisine(region, cuisine_slug_str, cuisine_label, rows,
         breadcrumbs   = breadcrumbs,
         is_cuisine    = True,
         sort          = sort,
+        sort_dir      = sort_dir,
         page          = page,
         per_page      = per_page,
         total         = total,
@@ -275,7 +286,7 @@ def render_cuisine(region, cuisine_slug_str, cuisine_label, rows,
 
 
 def render_neighborhood(region, city_slug_str, city_name, restaurants_with_scores,
-                        sort='date', page=1, per_page=25, total=None):
+                        sort='date', sort_dir=None, page=1, per_page=25, total=None):
     site_name      = current_app.config['SITE_NAME']
     base_url       = current_app.config['BASE_URL']
     region_display = get_region_display(region)
@@ -309,6 +320,8 @@ def render_neighborhood(region, city_slug_str, city_name, restaurants_with_score
         {'name': city_name},
     ]
 
+    if sort_dir is None:
+        sort_dir = _SORT_DEFAULTS.get(sort, 'desc')
     if total is None:
         total = len(restaurants_with_scores)
     total_pages = max(1, (total + per_page - 1) // per_page)
@@ -328,6 +341,7 @@ def render_neighborhood(region, city_slug_str, city_name, restaurants_with_score
         city_cuisine_types = city_cuisine_types,
         is_cuisine    = False,
         sort          = sort,
+        sort_dir      = sort_dir,
         page          = page,
         per_page      = per_page,
         total         = total,
@@ -356,9 +370,10 @@ def region_index(region):
         if count == 0:
             abort(404)
         sort     = request.args.get('sort', 'date')
+        sort_dir = request.args.get('dir', _SORT_DEFAULTS.get(sort, 'desc'))
         page     = max(1, request.args.get('page', 1, type=int))
         per_page = 25
-        search_results, search_total = search_restaurants(q, region=region, sort=sort, page=page, per_page=per_page)
+        search_results, search_total = search_restaurants(q, region=region, sort=sort, sort_dir=sort_dir, page=page, per_page=per_page)
         total_pages = max(1, (search_total + per_page - 1) // per_page)
         return render_template(
             'region.html',
@@ -371,6 +386,7 @@ def region_index(region):
             search_results      = search_results,
             search_total        = search_total,
             search_sort         = sort,
+            search_sort_dir     = sort_dir,
             search_page         = page,
             search_total_pages  = total_pages,
             search_base_path    = f'/{region}/',
@@ -526,10 +542,11 @@ def region_sub(region, path_slug):
     )
     if city_name:
         sort = request.args.get('sort', 'date')
+        sort_dir = request.args.get('dir', _SORT_DEFAULTS.get(sort, 'desc'))
         page = max(1, int(request.args.get('page', 1) or 1))
         per_page = 25
 
-        city_cache_key = f'city_page_{region}_{path_slug}_{sort}_{page}'
+        city_cache_key = f'city_page_{region}_{path_slug}_{sort}_{sort_dir}_{page}'
         cached = cache.get(city_cache_key)
         if cached:
             rows, total = cached
@@ -546,7 +563,7 @@ def region_sub(region, path_slug):
             if sort == 'score':
                 # Need inspection data for score sort — use subquery
                 score_sub = (
-                    db.session.query(Inspection.restaurant_id, Inspection.risk_score)
+                    db.session.query(Inspection.risk_score)
                     .filter(
                         Inspection.restaurant_id == Restaurant.id,
                         Inspection.inspection_date == Restaurant.latest_inspection_date,
@@ -555,14 +572,19 @@ def region_sub(region, path_slug):
                     .limit(1)
                     .scalar_subquery()
                 )
+                # risk_score: lower = better. desc (default) = best first = ASC
+                score_col = score_sub.asc() if sort_dir == 'desc' else score_sub.desc()
                 rq = rq.order_by(
                     db.case((score_sub.is_(None), 1), else_=0),
-                    score_sub.asc(),
+                    score_col,
                 )
             elif sort == 'name':
-                rq = rq.order_by(Restaurant.name.asc())
-            else:  # date (default) — sort on denormalized column, fully indexed
-                rq = rq.order_by(Restaurant.latest_inspection_date.desc())
+                rq = rq.order_by(Restaurant.name.asc() if sort_dir == 'asc' else Restaurant.name.desc())
+            else:  # date — sort on denormalized column, fully indexed
+                rq = rq.order_by(
+                    Restaurant.latest_inspection_date.desc() if sort_dir == 'desc'
+                    else Restaurant.latest_inspection_date.asc()
+                )
 
             page_ids = [r.id for r in rq.with_entities(Restaurant.id)
                         .offset((page - 1) * per_page).limit(per_page).all()]
@@ -592,7 +614,7 @@ def region_sub(region, path_slug):
             cache.set(city_cache_key, (rows, total), timeout=300)
 
         return render_neighborhood(region, path_slug, city_name, rows,
-                                   sort=sort, page=page, per_page=per_page, total=total)
+                                   sort=sort, sort_dir=sort_dir, page=page, per_page=per_page, total=total)
 
     # 3. Try cuisine/category slug
     cuisine_types = _get_cuisine_types(region)
@@ -600,10 +622,11 @@ def region_sub(region, path_slug):
     cuisine_label = cuisine_map.get(path_slug)
     if cuisine_label:
         sort = request.args.get('sort', 'date')
+        sort_dir = request.args.get('dir', _SORT_DEFAULTS.get(sort, 'desc'))
         page = max(1, int(request.args.get('page', 1) or 1))
-        rows, total = _cuisine_rows(region, cuisine_label, sort=sort, page=page)
+        rows, total = _cuisine_rows(region, cuisine_label, sort=sort, sort_dir=sort_dir, page=page)
         return render_cuisine(region, path_slug, cuisine_label, rows,
-                              total=total, page=page, sort=sort)
+                              total=total, page=page, sort=sort, sort_dir=sort_dir)
 
     abort(404)
 
@@ -626,11 +649,12 @@ def region_city_cuisine(region, city_slug_str, cuisine_slug_str):
         abort(404)
 
     sort = request.args.get('sort', 'date')
+    sort_dir = request.args.get('dir', _SORT_DEFAULTS.get(sort, 'desc'))
     page = max(1, int(request.args.get('page', 1) or 1))
-    rows, total = _cuisine_rows(region, cuisine_label, city_name=city_name, sort=sort, page=page)
+    rows, total = _cuisine_rows(region, cuisine_label, city_name=city_name, sort=sort, sort_dir=sort_dir, page=page)
     if not rows and page == 1:
         abort(404)
 
     return render_cuisine(region, cuisine_slug_str, cuisine_label, rows,
                           city_name=city_name, city_slug_str=city_slug_str,
-                          total=total, page=page, sort=sort)
+                          total=total, page=page, sort=sort, sort_dir=sort_dir)

@@ -111,15 +111,19 @@ def region_location(region: str) -> str:
 _STOP_WORDS = {'a', 'an', 'and', 'at', 'by', 'for', 'in', 'of', 'or', 'the', 'to'}
 
 
-def search_restaurants(q, region=None, sort='date', page=1, per_page=25):
+def search_restaurants(q, region=None, sort='date', sort_dir=None, page=1, per_page=25):
     """Return (rows, total) for a name search.
 
     rows  — list of (Restaurant, Inspection|None) tuples
     total — total matching count (for pagination)
 
     region: if given, scopes to that region only.
-    sort:   'date' (newest first), 'score' (best→worst), 'name' (A–Z)
+    sort:   'date', 'score', 'name'
+    sort_dir: 'asc' or 'desc' (defaults: date=desc, score=desc, name=asc)
     """
+    _defaults = {'date': 'desc', 'score': 'desc', 'name': 'asc'}
+    if sort_dir is None:
+        sort_dir = _defaults.get(sort, 'desc')
     # Normalize: replace special chars with spaces, collapse, split into tokens
     tokens = re.sub(r'[^a-zA-Z0-9]+', ' ', q).split()
     tokens = [t for t in tokens if t.lower() not in _STOP_WORDS]
@@ -151,16 +155,18 @@ def search_restaurants(q, region=None, sort='date', page=1, per_page=25):
         query = query.filter(Restaurant.region == region)
 
     if sort == 'score':
+        score_col = Inspection.score.desc() if sort_dir == 'desc' else Inspection.score.asc()
         query = query.order_by(
             db.case((Inspection.score.is_(None), 1), else_=0),
-            Inspection.score.desc(),
+            score_col,
         )
     elif sort == 'name':
-        query = query.order_by(Restaurant.name.asc())
-    else:  # date (default)
+        query = query.order_by(Restaurant.name.asc() if sort_dir == 'asc' else Restaurant.name.desc())
+    else:  # date
+        date_col = Inspection.inspection_date.desc() if sort_dir == 'desc' else Inspection.inspection_date.asc()
         query = query.order_by(
             db.case((Inspection.inspection_date.is_(None), 1), else_=0),
-            Inspection.inspection_date.desc(),
+            date_col,
         )
 
     rows = query.offset((page - 1) * per_page).limit(per_page).all()

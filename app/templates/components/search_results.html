@@ -13,7 +13,8 @@
 {% from 'components/restaurant_row.html' import render_restaurant_row %}
 {% from 'components/pagination.html' import render_pagination %}
 
-{% macro render_search_results(results, total, sort, page, total_pages, base_path, q, show_region=false) %}
+{% macro render_search_results(results, total, sort, page, total_pages, base_path, q, show_region=false, sort_dir=none) %}
+{% set sort_dir = sort_dir if sort_dir else ('asc' if sort == 'name' else 'desc') %}
 <div class="section-header">
     <h2>
         {% if results or total > 0 %}
@@ -28,9 +29,15 @@
 {% set qs_base = base_path ~ '?q=' ~ q | urlencode ~ '&' %}
 <div class="sort-bar">
     <span class="sort-label">Sort by:</span>
-    <a href="{{ qs_base }}sort=date"  class="sort-btn{% if sort == 'date' or not sort %} active{% endif %}">Last Inspected</a>
-    <a href="{{ qs_base }}sort=score" class="sort-btn{% if sort == 'score' %} active{% endif %}">Score</a>
-    <a href="{{ qs_base }}sort=name"  class="sort-btn{% if sort == 'name' %} active{% endif %}">Name</a>
+    {% for key, label, default_dir in [('date', 'Last Inspected', 'desc'), ('score', 'Score', 'desc'), ('name', 'Name', 'asc')] %}
+    {% set is_active = (sort == key) or (key == 'date' and not sort) %}
+    {% if is_active %}
+    {% set toggle_dir = 'asc' if sort_dir == 'desc' else 'desc' %}
+    <a href="{{ qs_base }}sort={{ key }}&dir={{ toggle_dir }}" class="sort-btn active">{{ label }} {{ '▲' if sort_dir == 'asc' else '▼' }}</a>
+    {% else %}
+    <a href="{{ qs_base }}sort={{ key }}&dir={{ default_dir }}" class="sort-btn">{{ label }}</a>
+    {% endif %}
+    {% endfor %}
 </div>
 
 <div class="rl-list" style="margin-bottom: 16px;">
@@ -39,7 +46,7 @@
     {% endfor %}
 </div>
 
-{{ render_pagination(page, total_pages, base_path, qs_prefix='?q=' ~ q | urlencode ~ '&sort=' ~ sort ~ '&') }}
+{{ render_pagination(page, total_pages, base_path, qs_prefix='?q=' ~ q | urlencode ~ '&sort=' ~ sort ~ '&dir=' ~ sort_dir ~ '&') }}
 
 {% else %}
 <p style="color: var(--text-secondary); margin-bottom: 32px;">Try a different search term.</p>
