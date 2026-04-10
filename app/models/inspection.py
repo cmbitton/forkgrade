@@ -24,6 +24,7 @@ class Inspection(db.Model):
     __table_args__ = (
         db.Index('ix_inspections_restaurant_id', 'restaurant_id'),
         db.Index('ix_inspections_restaurant_date', 'restaurant_id', 'inspection_date'),
+        db.Index('ix_inspections_restaurant_date_score', 'restaurant_id', 'inspection_date', 'risk_score'),
         db.Index('ix_inspections_date', 'inspection_date'),
         db.Index('ix_inspections_score', 'score'),
         db.Index('ix_inspections_date_score', 'inspection_date', 'score'),

@@ -52,7 +52,7 @@
             <div class="last-inspected">Last inspected: {{ latest_inspection.inspection_date|format_date }}</div>
             {% endif %}
         </div>
-        {{ render_score_ring(restaurant.latest_score, restaurant.score_tier, restaurant.score_display_tier, grade=current_grade, region=restaurant.region) }}
+        {{ render_score_ring(latest_score, score_tier, score_display_tier, grade=current_grade, region=restaurant.region) }}
     </div>
 
     <!-- AI SUMMARY -->

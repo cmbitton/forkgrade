@@ -386,8 +386,7 @@ def region_index(region):
         if total_inspections is None:
             total_inspections = (
                 db.session.query(func.count(Inspection.id))
-                .join(Restaurant)
-                .filter(Restaurant.region == region)
+                .filter(Inspection.region == region)
                 .scalar()
             )
             cache.set(insp_cache_key, total_inspections, timeout=3600)

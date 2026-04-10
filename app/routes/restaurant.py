@@ -17,7 +17,34 @@ def _cuisine_slug(label: str) -> str:
 
 
 def get_nearby_restaurants(restaurant, limit=3):
-    """Return up to `limit` nearby locations, sorted by distance."""
+    """Return up to `limit` nearby (Restaurant, score, score_tier) tuples, sorted by distance."""
+    from app.models.inspection import Inspection
+
+    def _with_scores(restaurants):
+        """Attach latest score to a list of Restaurant objects in a single query."""
+        if not restaurants:
+            return []
+        rid_map = {r.id: r for r in restaurants}
+        rows = (
+            db.session.query(Inspection.restaurant_id, Inspection.score, Inspection.risk_score)
+            .filter(
+                Inspection.restaurant_id.in_(list(rid_map.keys())),
+                Inspection.inspection_date == db.session.query(Restaurant.latest_inspection_date)
+                    .filter(Restaurant.id == Inspection.restaurant_id)
+                    .correlate(Inspection)
+                    .scalar_subquery(),
+            )
+            .all()
+        )
+        score_map = {}
+        for rid, score, risk_score in rows:
+            if score is not None:
+                tier = 'low' if score >= 75 else ('medium' if score >= 55 else 'high')
+            else:
+                tier = None
+            score_map[rid] = (score, tier)
+        return [(r, *score_map.get(r.id, (None, None))) for r in restaurants]
+
     if restaurant.latitude is not None and restaurant.longitude is not None:
         # Use a bounding box (~5km) to avoid loading the entire table
         radius = 0.05  # ~5.5km at RI latitudes
@@ -43,15 +70,15 @@ def get_nearby_restaurants(restaurant, limit=3):
                 break
 
         if candidates:
-            def dist(r):
-                dlat = r.latitude - restaurant.latitude
-                dlng = r.longitude - restaurant.longitude
+            def dist(c):
+                dlat = c.latitude - restaurant.latitude
+                dlng = c.longitude - restaurant.longitude
                 return math.sqrt(dlat * dlat + dlng * dlng)
             candidates.sort(key=dist)
-            return candidates[:limit]
+            return _with_scores(candidates[:limit])
 
     # Fallback: same city
-    return (
+    fallback = (
         Restaurant.query
         .filter(
             Restaurant.region == restaurant.region,
@@ -62,6 +89,7 @@ def get_nearby_restaurants(restaurant, limit=3):
         .limit(limit)
         .all()
     )
+    return _with_scores(fallback)
 
 
 def render_restaurant(restaurant):
@@ -190,7 +218,8 @@ def render_restaurant(restaurant):
 
     _tier_labels = {'low': 'Low Risk', 'medium': 'Medium Risk', 'high': 'High Risk'}
     score = latest_inspection.score if latest_inspection else None
-    tier_label = _tier_labels.get(restaurant.score_tier, '')
+    score_tier = latest_inspection.score_tier if latest_inspection else None
+    tier_label = _tier_labels.get(score_tier, '')
     if score is not None and tier_label:
         description = (
             f"{restaurant.display_name} health inspection score: {score} out of 100 ({tier_label}). "
@@ -227,6 +256,16 @@ def render_restaurant(restaurant):
 
     cuisine_slug = _cuisine_slug(restaurant.cuisine_type) if restaurant.cuisine_type else None
 
+    # Compute display tier from score (avoids lazy-loading inspections relationship)
+    if score is not None and score >= 75:
+        score_display_tier = 'low'
+    elif score is not None and score >= 55:
+        score_display_tier = 'medium'
+    elif score is not None:
+        score_display_tier = 'high'
+    else:
+        score_display_tier = None
+
     response = render_template(
         'restaurant.html',
         title=f'{restaurant.display_name} Health Inspection Score & History — {restaurant.city}, {restaurant.state} | {site_name}',
@@ -247,6 +286,9 @@ def render_restaurant(restaurant):
         json_ld=json_ld,
         breadcrumbs=breadcrumbs,
         cuisine_slug=cuisine_slug,
+        latest_score=score,
+        score_tier=score_tier,
+        score_display_tier=score_display_tier,
     )
     cache.set(cache_key, response, timeout=300)
     return response

@@ -136,11 +136,16 @@ def index():
         )
 
         total_restaurants = (
-            db.session.query(func.count(func.distinct(Restaurant.id)))
-            .join(Inspection, Restaurant.id == Inspection.restaurant_id)
+            db.session.query(func.count(Restaurant.id))
+            .filter(Restaurant.latest_inspection_date.isnot(None))
             .scalar()
         )
-        total_inspections = db.session.query(func.count(Inspection.id)).scalar()
+        # Full-table count — cache separately with long TTL since it's just a display number
+        insp_count_key = 'global_total_inspections'
+        total_inspections = cache.get(insp_count_key)
+        if total_inspections is None:
+            total_inspections = db.session.query(func.count(Inspection.id)).scalar()
+            cache.set(insp_count_key, total_inspections, timeout=3600)
 
         cache.set(cache_key, (
             regions, recent_inspections, total_restaurants, total_inspections

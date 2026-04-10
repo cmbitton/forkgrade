@@ -3,17 +3,17 @@
 <div class="nearby-section">
     <div class="section-title">Nearby Restaurants</div>
     <div class="nearby-grid">
-        {% for r in nearby %}
+        {% for r, r_score, r_tier in nearby %}
         <a href="/{{ region }}/{{ r.slug }}/" class="nearby-card">
             <div class="nearby-name">{{ r.display_name }}</div>
             <div class="nearby-address">{{ r.address or r.city }}</div>
             <div class="nearby-score"
-                {% if r.score_tier %}style="color: var(--tier-{{ r.score_tier }})"{% endif %}>
-                {% if r.latest_score is not none %}
-                    Score: {{ r.latest_score }}
-                    {% if r.score_tier == 'low' %} — Low Risk
-                    {% elif r.score_tier == 'medium' %} — Medium Risk
-                    {% elif r.score_tier == 'high' %} — High Risk
+                {% if r_tier %}style="color: var(--tier-{{ r_tier }})"{% endif %}>
+                {% if r_score is not none %}
+                    Score: {{ r_score }}
+                    {% if r_tier == 'low' %} — Low Risk
+                    {% elif r_tier == 'medium' %} — Medium Risk
+                    {% elif r_tier == 'high' %} — High Risk
                     {% endif %}
                 {% else %}
                     No score available
