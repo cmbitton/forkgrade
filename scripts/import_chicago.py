@@ -242,6 +242,24 @@ def fetch_inspections(since: date | None = None, limit: int = 1000):
 
 # ── Database write ───────────────────────────────────────────────────────────
 
+_NAME_ADDR_NORM_RE = re.compile(r'[^a-z0-9]+')
+
+
+def _name_addr_key(name: str, address: str) -> tuple[str, str]:
+    """Fuzzy key used to detect license renewals of the same venue."""
+    return (
+        _NAME_ADDR_NORM_RE.sub('', (name or '').lower()),
+        _NAME_ADDR_NORM_RE.sub('', (address or '').lower()),
+    )
+
+
+# A license that hasn't had an inspection in ~a year is almost certainly
+# dormant; if a new license with the same name+address appears, treat it
+# as a renewal and reuse the existing row. Active venues still get their
+# own rows (covers multi-kitchen hotels/stadiums).
+_RENEWAL_DORMANCY_DAYS = 365
+
+
 def write_to_db(rows, app, db, Restaurant, Inspection, Violation):
     with app.app_context():
         # Load existing Chicago restaurants keyed by source_id (license_)
@@ -251,6 +269,22 @@ def write_to_db(rows, app, db, Restaurant, Inspection, Violation):
                                      .filter(Restaurant.source_id.isnot(None))
                                      .all()
         }
+        # Secondary index by (name_key, addr_key) so a new license can
+        # match a dormant renewal candidate even when source_id differs.
+        by_nameaddr: dict[tuple[str, str], 'Restaurant'] = {}
+        for r in existing.values():
+            if not r.address:
+                continue
+            key = _name_addr_key(r.name, r.address)
+            incumbent = by_nameaddr.get(key)
+            if incumbent is None:
+                by_nameaddr[key] = r
+            else:
+                # Prefer the one with the most recent inspection — the active row
+                cur = incumbent.latest_inspection_date or date.min
+                new = r.latest_inspection_date or date.min
+                if new > cur:
+                    by_nameaddr[key] = r
         seen_slugs = {r.slug for r in existing.values()}
         other_slugs = {
             r.slug for r in Restaurant.query.filter(
@@ -301,6 +335,7 @@ def write_to_db(rows, app, db, Restaurant, Inspection, Violation):
                 continue
 
             # Get or create restaurant
+            address_title = (row.get('address') or '').strip().title()
             if license_num in existing:
                 restaurant = existing[license_num]
                 # Back-fill aka_name subtitle for restaurants that were
@@ -308,23 +343,42 @@ def write_to_db(rows, app, db, Restaurant, Inspection, Violation):
                 if '—' not in (restaurant.name or '') and '—' in name:
                     restaurant.name = name
             else:
-                slug = unique_slug(make_slug(name), seen_slugs)
-                restaurant = Restaurant(
-                    source_id=license_num,
-                    name=name,
-                    slug=slug,
-                    address=(row.get('address') or '').strip().title(),
-                    city='Chicago',
-                    state=STATE,
-                    zip=(row.get('zip') or '').strip(),
-                    latitude=_float(row.get('latitude')),
-                    longitude=_float(row.get('longitude')),
-                    region=REGION,
+                # Before minting a new row, check whether a dormant
+                # existing row at the same name+address is really the
+                # same venue under a renewed license.
+                candidate = by_nameaddr.get(_name_addr_key(name, address_title))
+                dormant = (
+                    candidate is not None
+                    and (
+                        candidate.latest_inspection_date is None
+                        or (date.today() - candidate.latest_inspection_date).days
+                        >= _RENEWAL_DORMANCY_DAYS
+                    )
                 )
-                db.session.add(restaurant)
-                existing[license_num] = restaurant
-                pending_restaurants.append(restaurant)
-                new_r += 1
+                if dormant:
+                    restaurant = candidate
+                    existing[license_num] = restaurant
+                    if '—' not in (restaurant.name or '') and '—' in name:
+                        restaurant.name = name
+                else:
+                    slug = unique_slug(make_slug(name), seen_slugs)
+                    restaurant = Restaurant(
+                        source_id=license_num,
+                        name=name,
+                        slug=slug,
+                        address=address_title,
+                        city='Chicago',
+                        state=STATE,
+                        zip=(row.get('zip') or '').strip(),
+                        latitude=_float(row.get('latitude')),
+                        longitude=_float(row.get('longitude')),
+                        region=REGION,
+                    )
+                    db.session.add(restaurant)
+                    existing[license_num] = restaurant
+                    by_nameaddr[_name_addr_key(name, address_title)] = restaurant
+                    pending_restaurants.append(restaurant)
+                    new_r += 1
 
             # Duplicate guard by inspection source_id
             insp_source = (row.get('inspection_id') or '').strip()

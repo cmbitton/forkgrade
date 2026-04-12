@@ -23,6 +23,11 @@ REGION_INFO = {
         'state_abbr': 'TX',
         'aliases': ['Houston TX', 'HTX'],
     },
+    'san-antonio': {
+        'display': 'San Antonio',
+        'state_abbr': 'TX',
+        'aliases': ['SA', 'San Antonio TX', 'SAT'],
+    },
     'maricopa': {
         'display': 'Maricopa',
         'state_abbr': 'AZ',

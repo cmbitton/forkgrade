@@ -524,8 +524,9 @@ def _csv_fallback_violations(rec: dict) -> list[dict]:
 # ── DB write ──────────────────────────────────────────────────────────────────
 
 def write_batch(records: list[dict], dry_run: bool,
-                existing: dict, by_location: dict, seen_slugs: set,
+                existing_ids: dict, by_location_ids: dict, seen_slugs: set,
                 known_insp: set, known_insp_keys: set,
+                latest_dates: dict, pending_latest_updates: dict,
                 db, Restaurant, Inspection, Violation) -> tuple[int, int, int]:
     new_r = new_i = skipped = 0
 
@@ -561,16 +562,18 @@ def write_batch(records: list[dict], dry_run: bool,
         lic = rec['license_num']
 
         # ── Get or create restaurant ──────────────────────────────────────────
-        if lic in existing:
-            restaurant = existing[lic]
-        else:
+        # We hold only restaurant IDs (not ORM objects) to keep memory flat
+        # across district files — ORM objects would pin the entire identity
+        # map and blow memory on Florida's ~60k+ restaurant set.
+        restaurant_id = existing_ids.get(lic)
+        if restaurant_id is None:
             # Check for same location under a different license number
             loc_key = (rec['name'].lower(), rec['address'].lower(),
                        rec['city'].lower())
-            restaurant = by_location.get(loc_key)
-            if restaurant:
+            restaurant_id = by_location_ids.get(loc_key)
+            if restaurant_id is not None:
                 # Alias this license to the existing restaurant
-                existing[lic] = restaurant
+                existing_ids[lic] = restaurant_id
             else:
                 slug = _unique_slug(
                     _make_slug(rec['name'], rec['city']),
@@ -588,22 +591,24 @@ def write_batch(records: list[dict], dry_run: bool,
                 )
                 db.session.add(restaurant)
                 db.session.flush()
-                existing[lic] = restaurant
-                by_location[loc_key] = restaurant
+                restaurant_id = restaurant.id
+                existing_ids[lic] = restaurant_id
+                by_location_ids[loc_key] = restaurant_id
+                latest_dates[restaurant_id] = None
                 new_r += 1
 
         known_insp.add(insp_num)
 
         # Skip if this (restaurant, date, type) was already imported via
         # a different source (e.g. portal gap-filler vs bulk CSV).
-        insp_key = (restaurant.id, rec['insp_date'], (rec['insp_type'] or '').strip())
+        insp_key = (restaurant_id, rec['insp_date'], (rec['insp_type'] or '').strip())
         if insp_key in known_insp_keys:
             skipped += 1
             continue
         known_insp_keys.add(insp_key)
 
         insp = Inspection(
-            restaurant_id   = restaurant.id,
+            restaurant_id   = restaurant_id,
             inspection_date = rec['insp_date'],
             source_id       = insp_num,
             inspection_type = rec['insp_type'],
@@ -625,11 +630,10 @@ def write_batch(records: list[dict], dry_run: bool,
             ))
 
         insp_date = rec['insp_date']
-        old_latest = restaurant.latest_inspection_date
+        old_latest = latest_dates.get(restaurant_id)
         if old_latest is None or insp_date > old_latest:
-            if old_latest != insp_date:
-                restaurant.ai_summary = None
-            restaurant.latest_inspection_date = insp_date
+            latest_dates[restaurant_id] = insp_date
+            pending_latest_updates[restaurant_id] = insp_date
 
         new_i += 1
 
@@ -645,19 +649,35 @@ def run_import(sources: list[tuple[str, str]], dry_run: bool, skip_portal: bool,
     """
 
     with app.app_context():
-        # Pre-load all FL restaurants once — shared across all district files
-        all_fl = Restaurant.query.filter_by(region=REGION) \
-                                 .filter(Restaurant.source_id.isnot(None)).all()
-        existing = {r.source_id: r for r in all_fl}
+        # Pre-load FL restaurants as lightweight tuples, NOT ORM objects.
+        # Holding ~60k+ Restaurant entities in the identity map dominates
+        # memory and was the main cause of OOM across district files.
+        fl_rows = db.session.execute(
+            db.text(
+                'SELECT id, source_id, name, address, city, latest_inspection_date '
+                'FROM restaurants '
+                'WHERE region = :region AND source_id IS NOT NULL'
+            ),
+            {'region': REGION},
+        ).fetchall()
 
-        # Secondary dedup: (lower name, lower address, lower city) → restaurant
+        existing_ids: dict[str, int] = {r[1]: r[0] for r in fl_rows}
+
+        # Secondary dedup: (lower name, lower address, lower city) → restaurant id
         # Prevents duplicates when the same location has multiple license numbers.
-        by_location: dict[tuple[str, str, str], 'Restaurant'] = {}
-        for r in all_fl:
-            key = ((r.name or '').lower(), (r.address or '').lower(),
-                   (r.city or '').lower())
-            by_location[key] = r
-        del all_fl
+        by_location_ids: dict[tuple[str, str, str], int] = {
+            ((r[2] or '').lower(), (r[3] or '').lower(), (r[4] or '').lower()): r[0]
+            for r in fl_rows
+        }
+
+        # Track current latest_inspection_date per restaurant so we only push
+        # updates when a newer inspection arrives.
+        latest_dates: dict[int, 'date | None'] = {r[0]: r[5] for r in fl_rows}
+        del fl_rows
+
+        # Batched update queue: restaurant_id -> new latest_inspection_date.
+        # Applied via bulk UPDATE in _flush, not via ORM mutation.
+        pending_latest_updates: dict[int, 'date'] = {}
 
         seen_slugs = {
             row[0] for row in db.session.execute(
@@ -693,12 +713,32 @@ def run_import(sources: list[tuple[str, str]], dry_run: bool, skip_portal: bool,
         def _flush(batch: list[dict]) -> tuple[int, int, int]:
             nonlocal total_r, total_i, total_skip
             new_r, new_i, skip = write_batch(
-                batch, dry_run, existing, by_location, seen_slugs,
+                batch, dry_run, existing_ids, by_location_ids, seen_slugs,
                 known_insp, known_insp_keys,
+                latest_dates, pending_latest_updates,
                 db, Restaurant, Inspection, Violation,
             )
             if not dry_run:
                 db.session.commit()
+                # Apply queued latest_inspection_date bumps as direct SQL so
+                # we don't have to keep Restaurant ORM objects around.
+                # Also clears ai_summary so it gets regenerated.
+                if pending_latest_updates:
+                    db.session.execute(
+                        db.text(
+                            'UPDATE restaurants '
+                            'SET latest_inspection_date = :d, ai_summary = NULL '
+                            'WHERE id = :rid'
+                        ),
+                        [{'d': d, 'rid': rid}
+                         for rid, d in pending_latest_updates.items()],
+                    )
+                    db.session.commit()
+                    pending_latest_updates.clear()
+                # Drop Inspection/Violation/new-Restaurant ORM objects from
+                # the identity map — they accumulate otherwise and OOM the
+                # importer partway through the district files.
+                db.session.expunge_all()
             total_r    += new_r
             total_i    += new_i
             total_skip += skip
@@ -757,6 +797,12 @@ def run_import(sources: list[tuple[str, str]], dry_run: bool, skip_portal: bool,
                       f'({PORTAL_CONCURRENCY} concurrent)...', flush=True)
 
                 vid_to_rec: dict[str, dict] = {r['visit_id']: r for r in portal_eligible}
+                # Snapshot just the (visit_id, license_id) pairs for task
+                # submission, then drop the big list. The rec dicts are kept
+                # alive only by vid_to_rec and get freed as we pop them.
+                visit_license_pairs = [(r['visit_id'], r['license_id'])
+                                       for r in portal_eligible]
+                portal_eligible = None  # free the list
                 hits = fetched = 0
                 pending: list[dict] = []
 
@@ -768,13 +814,13 @@ def run_import(sources: list[tuple[str, str]], dry_run: bool, skip_portal: bool,
                     async with aiohttp.ClientSession(connector=connector,
                                                      headers=headers) as session:
                         tasks = [
-                            _fetch_portal_async(session, r['visit_id'],
-                                                r['license_id'], sem)
-                            for r in portal_eligible
+                            _fetch_portal_async(session, vid, lid, sem)
+                            for vid, lid in visit_license_pairs
                         ]
                         for coro in asyncio.as_completed(tasks):
                             visit_id, viols = await coro
-                            rec = vid_to_rec.get(visit_id)
+                            # Pop so the rec dict can be GC'd after flush
+                            rec = vid_to_rec.pop(visit_id, None)
                             if rec is not None:
                                 rec['portal_viols'] = viols
                                 pending.append(rec)
@@ -798,12 +844,14 @@ def run_import(sources: list[tuple[str, str]], dry_run: bool, skip_portal: bool,
                 if pending:
                     for b in range(0, len(pending), WRITE_BATCH):
                         _flush(pending[b: b + WRITE_BATCH])
+                pending = None
+                vid_to_rec = None
+                visit_license_pairs = None
 
             elif portal_eligible and (skip_portal or dry_run):
                 for batch_start in range(0, len(portal_eligible), WRITE_BATCH):
                     _flush(portal_eligible[batch_start: batch_start + WRITE_BATCH])
-
-            del portal_eligible
+                portal_eligible = None
 
     print(f'\nDone: +{total_r} restaurants, +{total_i} inspections, '
           f'{total_skip} skipped.')
