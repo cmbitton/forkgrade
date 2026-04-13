@@ -10,7 +10,7 @@ Usage:
     python3 scripts/classify_cuisines.py --rules-only
     GEMINI_API_KEY=... python3 scripts/classify_cuisines.py
     GEMINI_API_KEY=... python3 scripts/classify_cuisines.py --gemini-limit=100
-    python3 scripts/classify_cuisines.py --region=houston
+    python3 scripts/classify_cuisines.py --region=texas
 """
 
 import json
@@ -320,7 +320,7 @@ def main():
         if args.region:
             q = q.filter(Restaurant.region == args.region)
         else:
-            q = q.filter(Restaurant.region.in_(['houston', 'maricopa']))
+            q = q.filter(Restaurant.region.in_(['texas', 'maricopa']))
         restaurants = q.all()
 
         print(f'Restaurants missing cuisine: {len(restaurants)}', flush=True)

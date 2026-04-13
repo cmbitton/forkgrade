@@ -5,7 +5,7 @@ Generate AI summaries for all restaurants missing one.
 Usage:
     GEMINI_API_KEY=your-key nat-health/bin/python3 scripts/generate_summaries.py
     GEMINI_API_KEY=your-key nat-health/bin/python3 scripts/generate_summaries.py --limit 500
-    GEMINI_API_KEY=your-key nat-health/bin/python3 scripts/generate_summaries.py --region houston
+    GEMINI_API_KEY=your-key nat-health/bin/python3 scripts/generate_summaries.py --region texas
     GEMINI_API_KEY=your-key nat-health/bin/python3 scripts/generate_summaries.py --workers 80
 
 Parallel: batches of restaurants are fetched from DB, summaries generated concurrently,

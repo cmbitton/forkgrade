@@ -9,7 +9,7 @@ Health inspection data is public, but it's often buried in agency databases that
 | Region | Source | Locations |
 |---|---|---|
 | New York City | NYC Dept. of Health and Mental Hygiene | ~27,400 |
-| Houston | Houston Health Department | ~19,100 |
+| Texas | Houston Health Dept. + San Antonio Metro Health | ~24,000 |
 | Maricopa County | Maricopa County Environmental Services | ~23,100 |
 | Rhode Island | RI Dept. of Health | ~6,700 |
 

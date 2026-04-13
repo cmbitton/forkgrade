@@ -18,15 +18,11 @@ REGION_INFO = {
         'state_abbr': 'NY',
         'aliases': ['New York City', 'New York', 'NY'],
     },
-    'houston': {
-        'display': 'Houston',
+    'texas': {
+        'display': 'Texas',
         'state_abbr': 'TX',
-        'aliases': ['Houston TX', 'HTX'],
-    },
-    'san-antonio': {
-        'display': 'San Antonio',
-        'state_abbr': 'TX',
-        'aliases': ['SA', 'San Antonio TX', 'SAT'],
+        'aliases': ['TX', 'Houston', 'San Antonio', 'Houston TX', 'San Antonio TX',
+                    'HTX', 'SAT', 'SA'],
     },
     'maricopa': {
         'display': 'Maricopa',

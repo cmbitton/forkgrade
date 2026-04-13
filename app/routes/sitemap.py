@@ -1,6 +1,6 @@
 import re
 
-from flask import Blueprint, Response, current_app
+from flask import Blueprint, Response, current_app, redirect
 from sqlalchemy import func
 from app.db import db, cache
 from app.models.restaurant import Restaurant
@@ -22,6 +22,15 @@ def _city_slug(city: str) -> str:
 
 
 sitemap_bp = Blueprint('sitemap', __name__)
+
+
+# Legacy sitemap redirects — houston + san-antonio were merged into 'texas'.
+# Old per-region sitemap URLs 301 to the texas equivalent so Google Search
+# Console and any cached sitemap index entries still resolve.
+@sitemap_bp.route('/sitemap-houston.xml')
+@sitemap_bp.route('/sitemap-san-antonio.xml')
+def legacy_tx_sitemap():
+    return redirect('/sitemap-texas.xml', code=301)
 
 
 def _xml_response(content):

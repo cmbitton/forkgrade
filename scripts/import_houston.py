@@ -67,7 +67,7 @@ _HOUSTON_FDA_EXTRAS = {
 
 BASE_URL   = 'https://houston-tx.healthinspections.us/media'
 SEARCH_URL = f'{BASE_URL}/search.cfm'
-REGION     = 'houston'
+REGION     = 'texas'  # merged: Houston HHD + San Antonio Metro are both under 'texas'
 STATE      = 'TX'
 DELAY      = 1.0   # seconds between requests (be polite; server is CF and rate-limits)
 
@@ -828,7 +828,7 @@ def write_to_db(records: list, app, db, Restaurant, Inspection, Violation):
                 grade           = None,
                 result          = score_to_result(score),
                 inspection_type = rec.get('type') or 'Routine',
-                region          = 'houston',
+                region          = REGION,
             )
             db.session.add(insp)
             db.session.flush()

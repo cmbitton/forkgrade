@@ -134,7 +134,7 @@
         </div>
 
         <div class="violation-legend">
-            {% if restaurant.region == 'nyc' %}
+            {% if violation_scheme == 'nyc' %}
             <div class="legend-item">
                 <div class="severity-dot critical" style="margin-top:0"></div>
                 Critical
@@ -143,7 +143,7 @@
                 <div class="severity-dot minor" style="margin-top:0"></div>
                 Not Critical
             </div>
-            {% elif restaurant.region == 'houston' %}
+            {% elif violation_scheme == 'houston' %}
             <div class="legend-item">
                 <div class="severity-dot critical" style="margin-top:0"></div>
                 Substantial (Critical)

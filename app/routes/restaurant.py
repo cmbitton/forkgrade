@@ -266,6 +266,25 @@ def render_restaurant(restaurant):
     else:
         score_display_tier = None
 
+    # Violation-legend scheme: picks which set of severity labels the template
+    # should display. The Texas region bundles two health departments —
+    # Houston HHD uses "Substantial/Serious/General", San Antonio Metro uses
+    # FDA standard "Priority/Priority Foundation/Core" — so we can't branch
+    # on `restaurant.region` alone.
+    #
+    # FRAGILE — TECHNICAL DEBT: we discriminate the two Texas sources by
+    # source_id format (Houston = UUID-hex with dashes, SA = numeric). This
+    # holds today but silently mis-labels any future Texas data source whose
+    # IDs happen to contain dashes. The proper fix is a `data_source` column
+    # on restaurants (or a small lookup keyed by source_id prefix), populated
+    # by each importer. Revisit before adding a third Texas source.
+    if restaurant.region == 'nyc':
+        violation_scheme = 'nyc'
+    elif restaurant.region == 'texas' and restaurant.source_id and '-' in restaurant.source_id:
+        violation_scheme = 'houston'
+    else:
+        violation_scheme = 'fda'
+
     response = render_template(
         'restaurant.html',
         title=f'{restaurant.display_name} Health Inspection Score & History — {restaurant.city}, {restaurant.state} | {site_name}',
@@ -289,6 +308,7 @@ def render_restaurant(restaurant):
         latest_score=score,
         score_tier=score_tier,
         score_display_tier=score_display_tier,
+        violation_scheme=violation_scheme,
     )
     cache.set(cache_key, response, timeout=300)
     return response

@@ -87,7 +87,7 @@ _SA_TAC_SEVERITY = {
 BASE_URL   = 'https://sanantonio-tx.healthinspections.us/san%20antonio'
 SEARCH_URL = f'{BASE_URL}/search.cfm'
 ESTAB_URL  = f'{BASE_URL}/estab.cfm'
-REGION     = 'san-antonio'
+REGION     = 'texas'  # merged: Houston HHD + San Antonio Metro are both under 'texas'
 STATE      = 'TX'
 DELAY      = 0.8   # seconds between requests
 

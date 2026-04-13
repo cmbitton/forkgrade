@@ -3,7 +3,7 @@ import re
 import time
 from datetime import date, timedelta
 
-from flask import Blueprint, render_template, request, abort, current_app
+from flask import Blueprint, render_template, request, abort, current_app, redirect
 from sqlalchemy import func
 from sqlalchemy.orm import selectinload
 
@@ -16,6 +16,32 @@ from app.routes.restaurant import render_restaurant
 from app.utils import get_region_display, get_region_aliases, region_location, search_restaurants
 
 region_bp = Blueprint('region', __name__)
+
+
+# ── Legacy region redirects ───────────────────────────────────────────────────
+# Houston and San Antonio were previously standalone regions. They were merged
+# into 'texas'. Any bookmarked or indexed URL under the old slugs 301s to the
+# matching path under /texas/. Static routes take precedence over the generic
+# /<region>/ routes, so these match first. These slugs must remain reserved —
+# we can never introduce a new region called 'houston' or 'san-antonio' again.
+
+def _legacy_texas_redirect(subpath: str = ''):
+    target = f'/texas/{subpath}' if subpath else '/texas/'
+    if request.query_string:
+        target = f'{target}?{request.query_string.decode()}'
+    return redirect(target, code=301)
+
+
+@region_bp.route('/houston/', defaults={'subpath': ''})
+@region_bp.route('/houston/<path:subpath>')
+def legacy_houston(subpath):
+    return _legacy_texas_redirect(subpath)
+
+
+@region_bp.route('/san-antonio/', defaults={'subpath': ''})
+@region_bp.route('/san-antonio/<path:subpath>')
+def legacy_san_antonio(subpath):
+    return _legacy_texas_redirect(subpath)
 
 
 _NON_RESTAURANT_TYPES = frozenset([
