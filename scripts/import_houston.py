@@ -498,6 +498,13 @@ def parse_detail(html: str, facility_id: str) -> dict | None:
     name = _strip(h3_m.group(1)).title()
     if not name or len(name) < 2:
         return None
+    # Guard: a small fraction of inspection IDs return the search-results
+    # *listing* page (its top <h3> is "Inspection Results") instead of a facility
+    # detail page. These produced 91 phantom "Inspection Results" restaurants in
+    # prod before being cleaned up. Reject anything whose h3 is a generic portal
+    # header rather than a facility name.
+    if name.lower() in ('inspection results', 'search results', 'health inspections'):
+        return None
 
     # ── Address ───────────────────────────────────────────────────────────────
     # The address follows </h3> as two text nodes separated by <br>:

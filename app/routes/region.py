@@ -166,6 +166,42 @@ def _get_cuisine_types(region):
     return result
 
 
+def _get_city_cuisine_types(region: str, city_name: str, city_slug_str: str) -> list:
+    """Cuisine types present in this city with enough restaurants to get a link.
+
+    Uses distinct-restaurant count (matches `_get_cuisine_types` so the two
+    lists stay consistent). The `min_count` threshold scales with city size
+    via `_cuisine_min_count`, so small cities surface more cuisines than the
+    region-wide list would. Cached 1 h.
+    """
+    cache_key = f'city_cuisine_types_{region}_{city_slug_str}'
+    hit = cache.get(cache_key)
+    if hit is not None:
+        return hit
+    city_size = db.session.query(func.count(Restaurant.id)).filter(
+        Restaurant.region == region, Restaurant.city == city_name
+    ).scalar() or 0
+    min_count = _cuisine_min_count(city_size)
+    rows = (
+        db.session.query(Restaurant.cuisine_type, func.count(Restaurant.id))
+        .filter(
+            Restaurant.region == region,
+            Restaurant.city == city_name,
+            Restaurant.cuisine_type.isnot(None),
+            Restaurant.latest_inspection_date.isnot(None),
+        )
+        .group_by(Restaurant.cuisine_type)
+        .having(func.count(Restaurant.id) >= min_count)
+        .all()
+    )
+    result = [
+        {'slug': _cuisine_slug(label), 'label': label, 'count': cnt}
+        for label, cnt in rows if label
+    ]
+    cache.set(cache_key, result, timeout=3600)
+    return result
+
+
 def _cuisine_rows(region, cuisine_type, city_name=None, sort='date', sort_dir=None, page=1, per_page=25):
     """(Restaurant, Inspection|None) for a cuisine type, with sort and pagination.
 
@@ -317,28 +353,7 @@ def render_neighborhood(region, city_slug_str, city_name, restaurants_with_score
     base_url       = current_app.config['BASE_URL']
     region_display = get_region_display(region)
 
-    # Cuisine types present in this city for sub-navigation — cached 1 h
-    ct_cache_key = f'city_cuisine_types_{region}_{city_slug_str}'
-    city_cuisine_types = cache.get(ct_cache_key)
-    if city_cuisine_types is None:
-        city_size = db.session.query(func.count(Restaurant.id)).filter(
-            Restaurant.region == region, Restaurant.city == city_name
-        ).scalar() or 0
-        min_count = _cuisine_min_count(city_size)
-        city_cuisine_rows = (
-            db.session.query(Restaurant.cuisine_type, func.count(Restaurant.id))
-            .join(Inspection, Restaurant.id == Inspection.restaurant_id)
-            .filter(Restaurant.region == region, Restaurant.city == city_name,
-                    Restaurant.cuisine_type.isnot(None))
-            .group_by(Restaurant.cuisine_type)
-            .having(func.count(Restaurant.id) >= min_count)
-            .all()
-        )
-        city_cuisine_types = [
-            {'slug': _cuisine_slug(label), 'label': label, 'count': cnt}
-            for label, cnt in city_cuisine_rows if label
-        ]
-        cache.set(ct_cache_key, city_cuisine_types, timeout=3600)
+    city_cuisine_types = _get_city_cuisine_types(region, city_name, city_slug_str)
 
     breadcrumbs = [
         {'name': 'Home',          'url': '/'},
@@ -668,7 +683,10 @@ def region_city_cuisine(region, city_slug_str, cuisine_slug_str):
     if not city_name:
         abort(404)
 
-    cuisine_types = _get_cuisine_types(region)
+    # Validate against the city-specific cuisine list — the city page is what
+    # generated the link, so the set of valid cuisines for this URL must match
+    # whatever the city sidebar surfaces (see `_get_city_cuisine_types`).
+    cuisine_types = _get_city_cuisine_types(region, city_name, city_slug_str)
     cuisine_map = {ct['slug']: ct['label'] for ct in cuisine_types}
     cuisine_label = cuisine_map.get(cuisine_slug_str)
     if not cuisine_label:
