@@ -738,17 +738,40 @@ def fetch_detail(opener, jar, facility_id: str, inspection_id: str, sd: str, ed:
 
 def write_to_db(records: list, app, db, Restaurant, Inspection, Violation):
     with app.app_context():
+        # Scope the existing-row lookup to rows THIS importer is responsible
+        # for. Both Houston HHD and San Antonio SAMHD share region='texas'
+        # and emit short numeric IDs that collide — ~119 collisions in prod
+        # (Houston's facility_id is mostly UUID but also has ~2800 numeric
+        # IDs that overlap with SA license IDs). Without scoping, SA rows
+        # would leak into Houston's existing dict.
+        #
+        # Discriminator: exclude city='San Antonio'. SA's parse_address
+        # defaults every ambiguous address to 'San Antonio', so excluding
+        # that one city captures nearly every Houston row regardless of
+        # which Harris County suburb its ZIP resolved to.
+        #
+        # FRAGILE — TECHNICAL DEBT: same issue called out in
+        # app/routes/restaurant.py's violation_scheme dispatch. The proper
+        # fix is a `data_source` column on restaurants, populated by each
+        # importer. Revisit before adding a third Texas source.
         existing = {
             r.source_id: r
             for r in Restaurant.query.filter_by(region=REGION)
-                                     .filter(Restaurant.source_id.isnot(None)).all()
+                                     .filter(Restaurant.source_id.isnot(None),
+                                             Restaurant.city != 'San Antonio').all()
         }
-        seen_slugs = {r.slug for r in existing.values()}
-        seen_slugs |= {
-            r.slug for r in
-            Restaurant.query.filter(Restaurant.region != REGION)
-                            .with_entities(Restaurant.slug).all()
-        }
+
+        # seen_slugs MUST come from a direct query of Restaurant.slug, not
+        # from existing.values(). Because two importers share region='texas'
+        # and their source_ids collide, {source_id: row} silently drops one
+        # row from each collision pair — deriving slugs from .values() would
+        # leave those dropped rows' slugs missing from the seen set. On a
+        # resume run unique_slug would then hand out slugs that look free
+        # but are already in the DB, tripping uq_restaurant_region_slug.
+        seen_slugs = set(
+            slug for (slug,) in
+            db.session.query(Restaurant.slug).all()
+        )
         new_r = new_i = skipped = 0
 
         for rec in records:

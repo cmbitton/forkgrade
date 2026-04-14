@@ -49,6 +49,11 @@ REGION_INFO = {
         'state_abbr': 'MA',
         'aliases': ['BOS', 'MA', 'Massachusetts'],
     },
+    'georgia': {
+        'display': 'Georgia',
+        'state_abbr': 'GA',
+        'aliases': ['GA', 'Atlanta', 'ATL'],
+    },
 }
 
 

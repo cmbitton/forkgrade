@@ -631,17 +631,43 @@ def fetch_detail(lic: str, iid: str, debug: bool = False) -> dict | None:
 
 def write_to_db(records: list, app, db, Restaurant, Inspection, Violation):
     with app.app_context():
+        # Scope the existing-row lookup to rows THIS importer is responsible
+        # for. Both Houston HHD and San Antonio SAMHD share region='texas',
+        # and both emit short numeric license/facility IDs, so source_id
+        # alone is ambiguous across the two sources — ~119 collisions in
+        # prod (e.g. Houston facility '2330' = Roman Delight Pizza in
+        # Friendswood vs SA license '2330' = IHOP in San Antonio, totally
+        # different establishments).
+        #
+        # Discriminator: city='San Antonio'. SAMHD only covers city-of-SA
+        # permits and parse_address defaults to 'San Antonio' for anything
+        # it can't otherwise resolve, so ~99% of SA rows land with that
+        # city. The ~1% of SA suburbs (Helotes, Universal City, etc.) risk
+        # being treated as "new" on a resume run, producing minor
+        # duplicates — tolerable, not a crash.
+        #
+        # FRAGILE — TECHNICAL DEBT: same issue called out in
+        # app/routes/restaurant.py's violation_scheme dispatch. The proper
+        # fix is a `data_source` column on restaurants, populated by each
+        # importer. Revisit before adding a third Texas source.
         existing = {
             r.source_id: r
-            for r in Restaurant.query.filter_by(region=REGION)
+            for r in Restaurant.query.filter_by(region=REGION, city='San Antonio')
                                      .filter(Restaurant.source_id.isnot(None)).all()
         }
-        seen_slugs = {r.slug for r in existing.values()}
-        seen_slugs |= {
-            r.slug for r in
-            Restaurant.query.filter(Restaurant.region != REGION)
-                            .with_entities(Restaurant.slug).all()
-        }
+
+        # seen_slugs MUST come from a direct query of Restaurant.slug, not
+        # from existing.values(). Because two importers share region='texas'
+        # and their source_ids collide, {source_id: row} silently drops one
+        # row from each collision pair — deriving slugs from .values() would
+        # leave those dropped rows' slugs missing from the seen set. On a
+        # resume run unique_slug would then hand out slugs that look free
+        # but are already in the DB, tripping uq_restaurant_region_slug and
+        # crashing the import (as happened on the SA resume 2026-04-13).
+        seen_slugs = set(
+            slug for (slug,) in
+            db.session.query(Restaurant.slug).all()
+        )
 
         existing_insp_ids = set(
             sid for (sid,) in
