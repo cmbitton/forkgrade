@@ -17,10 +17,11 @@ scraping required. Three endpoints are used:
          columns{date, purpose, score, inspector} AND a fully-populated
          violations dict (no second fetch required to get violation detail).
 
-GA permit types covered (we ingest all of them — restaurants, hotels, pools):
+GA permit types covered:
   Food Service          (Rule 511-6-1)
-  Tourist Accommodation (Rule 511-6-2)
-  Swimming Pool         (Rule 511-3-5)
+  Tourist Accommodation (Rule 511-6-2) — SKIPPED; hotel/motel sanitation.
+  Swimming Pool         (Rule 511-3-5) — SKIPPED; not relevant to a
+                                         restaurant-review app.
 
 Severity (uniform across permit types — derived from inspector points):
   >= 9 points → critical (weight 3)
@@ -814,6 +815,8 @@ def main():
                 for f in facs:
                     facilities_seen += 1
                     if f['last_date'] is None or f['last_date'] < cutoff:
+                        continue
+                    if f['permit_type'] in ('Swimming Pool', 'Tourist Accommodation'):
                         continue
                     facilities_in_window += 1
                     permit_type_counts[f['permit_type'] or 'Unknown'] += 1
