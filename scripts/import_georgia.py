@@ -33,9 +33,13 @@ Severity (uniform across permit types — derived from inspector points):
   authoritative for all three. Points are what GA actually subtracts from 100.
 
 Score:
-  GA gives us a real numeric score per inspection (e.g. "Score: 87"). We use
-  it directly rather than recomputing — it matches what the official portal
-  displays and what shows on the inspector's report.
+  Same formula every other importer uses, for cross-region consistency:
+      risk_score = sum of severity weights (3/2/1)
+      score      = round(100 * exp(-risk_score * 0.05))
+  GA's portal does report its own numeric score per inspection, but we
+  don't use it — it factors in correction-on-site, repeat status, and other
+  rolling adjustments that don't map onto our risk_score, and using it
+  produced a non-monotonic "Lowest Scores This Month" panel on the GA page.
 
 Inspector notes cleanup:
   Inspectors sometimes paste the full regulatory boilerplate into the Notes
@@ -50,12 +54,15 @@ Usage:
   python3 scripts/import_georgia.py --days=30
   python3 scripts/import_georgia.py --full       # walk entire portal listing
   python3 scripts/import_georgia.py --full --start-page=1200   # resume
+  python3 scripts/import_georgia.py --full --workers=12        # more parallelism
   python3 scripts/import_georgia.py --dry-run    # parse only, no DB writes
   python3 scripts/import_georgia.py --debug      # extra logging, no early exit
 """
 
 import base64
+import concurrent.futures
 import json
+import math
 import os
 import re
 import sys
@@ -98,7 +105,7 @@ _SEV_WEIGHTS = {'critical': 3, 'major': 2, 'minor': 1}
 
 # ── HTTP ─────────────────────────────────────────────────────────────────────
 
-def _get_json(url: str, retries: int = 3) -> object | None:
+def _get_json(url: str, retries: int = 5) -> object | None:
     """GET a JSON endpoint with backoff. Returns parsed JSON or None on failure."""
     req = urllib.request.Request(url, headers=_HEADERS)
     for attempt in range(retries):
@@ -109,7 +116,11 @@ def _get_json(url: str, retries: int = 3) -> object | None:
                     return None
                 return json.loads(raw)
         except urllib.error.HTTPError as exc:
-            if exc.code in (502, 503, 504) and attempt < retries - 1:
+            # 429 + 5xx all retried with exponential backoff. The Tyler
+            # HealthSpace backend is flaky under parallel load — it returns
+            # bare 500s (not 429s) when it wants us to slow down, and most
+            # of those are transient: a single retry usually succeeds.
+            if exc.code in (429, 500, 502, 503, 504) and attempt < retries - 1:
                 wait = 2 ** (attempt + 1)
                 print(f"  HTTP {exc.code}, retry {attempt+1}/{retries} in {wait}s")
                 time.sleep(wait)
@@ -141,12 +152,56 @@ def severity_for_points(points: int) -> str:
     high-impact items still carry 9, intermediate items 4-5, minor items 1-3.
     Single uniform mapping is fine because the important property is rank
     consistency within an inspection, not cross-form calibration.
+
+    Used as a fallback when `severity_from_marker` can't extract an
+    unambiguous FDA category marker from the citation line.
     """
     if points >= 9:
         return 'critical'
     if points >= 4:
         return 'major'
     return 'minor'
+
+
+# Matches the FDA category marker GA appends at the END of the citation line
+# on Food Service forms. Allowed forms: '(p)', '(pf)', '(c)', and combinations
+# like '(pf, c)' or '(p, pf)'. The leading '\(' isn't preceded by anything
+# specific because some citations glue the marker to the description with no
+# space ('...food stored covered(c)') while others use one or two spaces
+# ('...hot holding  (p)  '). The trailing '\s*$' anchors it to end-of-line so
+# we can never false-match a paren group from the citation code itself
+# (e.g. the '(f)' in '511-6-1.04(6)(f)').
+_FDA_MARKER_RE = re.compile(
+    r'\(\s*((?:p|pf|c)(?:\s*,\s*(?:p|pf|c))*)\s*\)\s*$',
+    re.IGNORECASE,
+)
+
+_MARKER_TO_SEVERITY = {'p': 'critical', 'pf': 'major', 'c': 'minor'}
+
+
+def severity_from_marker(citation_line: str) -> str | None:
+    """
+    Pull the explicit FDA category marker off a Food Service citation line and
+    map it to our internal severity tiers. Returns None when no marker is
+    present (Tourist Accommodation / Swimming Pool forms don't carry them) or
+    when the marker is multi-category (e.g. '(pf, c)') and therefore ambiguous
+    — caller falls back to `severity_for_points` in both cases.
+
+    Why prefer the marker when available: the marker is GA's authoritative
+    FDA classification, while points are a derived numeric we infer back from.
+    They agree in the common case but the marker wins on inspector typos
+    (Priority items the inspector miscounted as 4 instead of 9 — observed
+    in real GA data) and would survive any future GA re-scaling of points.
+    """
+    if not citation_line:
+        return None
+    m = _FDA_MARKER_RE.search(citation_line)
+    if not m:
+        return None
+    markers = {t.strip().lower() for t in m.group(1).split(',')}
+    if len(markers) != 1:
+        return None  # ambiguous → caller uses points
+    return _MARKER_TO_SEVERITY[next(iter(markers))]
 
 
 def compute_risk(violations: list) -> int:
@@ -380,7 +435,9 @@ def parse_violation(v_array: list) -> dict | None:
 
     points = _parse_points(points_line)
     code   = _extract_violation_code(citation_line)
-    severity = severity_for_points(points)
+    # Marker first (Food Service); points fallback (Tourist Accom., Pool, or
+    # multi-category Food Service items where the marker is ambiguous).
+    severity = severity_from_marker(citation_line) or severity_for_points(points)
 
     # Description: prefer the form item title (v[0]) since it's the standard
     # GA form-item phrasing. Fall back to the citation line if v[0] is empty.
@@ -419,14 +476,6 @@ def parse_inspection(ins: dict) -> dict | None:
 
     purpose = _strip_label(cols.get('1', ''), 'Inspection Purpose:') or 'Routine'
 
-    score_str = _strip_label(cols.get('2', ''), 'Score:')
-    score = None
-    if score_str:
-        try:
-            score = int(score_str)
-        except ValueError:
-            score = None
-
     violations = []
     raw_v = ins.get('violations') or {}
     # Keys are stringified ints "0","1","2" — preserve their order.
@@ -435,10 +484,17 @@ def parse_inspection(ins: dict) -> dict | None:
         if v:
             violations.append(v)
 
+    # Compute risk + score here (NOT from the GA portal's reported score)
+    # so the dry-run path and the write path always show the same numbers.
+    # See module docstring for why we don't use cols['2'] / 'Score:'.
+    risk  = compute_risk(violations)
+    score = round(100 * math.exp(-risk * 0.05))
+
     return {
         'inspection_id': str(ins.get('inspectionId') or ''),
         'date':          insp_date,
         'purpose':       purpose,
+        'risk':          risk,
         'score':         score,
         'violations':    violations,
     }
@@ -462,9 +518,14 @@ def fetch_facility_page(page_idx: int) -> list:
 def fetch_facility_inspections(fid_b64: str, since: date) -> list:
     """
     Fetch every inspection for one facility and parse those dated >= `since`.
-    Returns a list of inspection dicts.
+    Returns a list of inspection dicts (possibly empty if no in-window rows).
+    Raises RuntimeError on a hard fetch failure so the worker pool surfaces it
+    instead of silently dropping the facility — that's how we distinguish
+    "skipped, nothing in window" from "lost to a 500 we couldn't recover".
     """
     data = _get_json(INSPECTIONS_URL.format(fid=urllib.parse.quote(fid_b64)))
+    if data is None:
+        raise RuntimeError(f"hard fetch failure for facility {fid_b64}")
     if not isinstance(data, list):
         return []
     out = []
@@ -559,14 +620,8 @@ def write_batch(records: list, db, Restaurant, Inspection, Violation,
                 continue
 
             violations = rec.get('violations', [])
-            risk       = compute_risk(violations)
-            # Use GA's reported score directly when available — it's the
-            # number that appears on the official inspection report. Fall
-            # back to (100 - sum_points) when missing, then to 0.
+            risk  = rec['risk']
             score = rec['score']
-            if score is None:
-                pts_total = sum(v['points'] for v in violations)
-                score = max(0, 100 - pts_total)
 
             insp = Inspection(
                 restaurant_id   = restaurant.id,
@@ -579,20 +634,22 @@ def write_batch(records: list, db, Restaurant, Inspection, Violation,
                 inspection_type = rec.get('purpose') or 'Routine',
                 region          = REGION,
             )
-            db.session.add(insp)
-            db.session.flush()
-            new_i += 1
-            existing_insp_ids.add(iid)
-
+            # Append violations through the relationship instead of giving them
+            # explicit inspection_id values + per-row flushes. SQLAlchemy's
+            # cascade='save-update' adds them to the session automatically and
+            # resolves the FK at commit time. Saves ~30k flush round-trips per
+            # full GA run — those flushes were the dominant DB-side cost.
             for v in violations:
-                db.session.add(Violation(
-                    inspection_id     = insp.id,
+                insp.violations.append(Violation(
                     violation_code    = v['code'],
                     description       = v['desc'],
                     inspector_notes   = v['notes'],
                     severity          = v['severity'],
                     corrected_on_site = v['corrected'],
                 ))
+            db.session.add(insp)
+            new_i += 1
+            existing_insp_ids.add(iid)
 
             old_latest = restaurant.latest_inspection_date
             if old_latest is None or rec['date'] > old_latest:
@@ -608,8 +665,16 @@ def write_batch(records: list, db, Restaurant, Inspection, Violation,
 
 # How many facilities (not inspections) to collect before flushing to DB.
 # Small enough that a crash only loses a minute or two of work; large enough
-# to amortize the transaction overhead. At ~1 facility/sec this is ~8 min/flush.
+# to amortize the transaction overhead.
 FLUSH_EVERY = 500
+
+# Concurrent in-flight facility-detail HTTP requests. Each detail fetch is
+# ~200-500 ms of pure network latency, so prior versions that sequenced them
+# (with a 0.6 s sleep between!) wasted hours on a --full run. 6 is a polite
+# default — the GA portal's Tyler HealthSpace SaaS will return bare HTTP 500s
+# (not 429s) when it wants us to slow down. Bump with --workers=N at your
+# own risk; 12 is roughly the upper bound before the 500s become persistent.
+WORKERS = 6
 
 
 def main():
@@ -619,6 +684,7 @@ def main():
 
     days = 7
     start_page = 0
+    workers = WORKERS
     since_arg: date | None = None
     for arg in sys.argv[1:]:
         if arg.startswith('--days='):
@@ -627,6 +693,8 @@ def main():
             since_arg = date.fromisoformat(arg.split('=', 1)[1])
         elif arg.startswith('--start-page='):
             start_page = int(arg.split('=', 1)[1])
+        elif arg.startswith('--workers='):
+            workers = max(1, int(arg.split('=', 1)[1]))
 
     today = date.today()
     if full_mode:
@@ -637,6 +705,7 @@ def main():
     print(f"Fetching Georgia inspections since {cutoff} (today={today})")
     if start_page:
         print(f"  (resuming from page {start_page})")
+    print(f"  using {workers} parallel workers for facility detail fetches")
     if dry_run:
         print("  (--dry-run: no DB writes)")
 
@@ -656,6 +725,7 @@ def main():
     total_new_r = total_new_i = total_skipped = 0
     facilities_seen = 0
     facilities_in_window = 0
+    facilities_failed = 0
     permit_type_counts: Counter = Counter()
 
     with app.app_context():
@@ -696,52 +766,89 @@ def main():
             records_batch = []
             batch_facilities = 0
 
-        while True:
-            facs = fetch_facility_page(page)
-            if not facs:
-                print(f"\nReached end of facility listing at page {page}.")
-                break
+        # Sliding window of in-flight detail fetches. Submit eagerly while we
+        # walk pages; only block (wait for at least one to finish) when the
+        # in-flight queue would exceed MAX_PENDING. This decouples paging
+        # latency from per-facility latency — the network is the bottleneck
+        # and we now keep ~workers requests on the wire continuously instead
+        # of going one-at-a-time with a sleep between.
+        MAX_PENDING = workers * 4
+        pending: dict = {}  # future -> facility dict
 
-            # Full run: the listing is sorted by last_inspection_date DESC, so
-            # once a full page is past the cutoff, all subsequent pages are too.
-            # Incremental run: same rule gets us an early exit once we're past
-            # the window.
-            page_max_date = max(
-                (f['last_date'] for f in facs if f['last_date']), default=None
-            )
-            if page_max_date is not None and page_max_date < cutoff:
-                print(f"\nPage {page} max date {page_max_date} < cutoff — stopping.")
-                break
-
-            for f in facs:
-                facilities_seen += 1
-                if f['last_date'] is None or f['last_date'] < cutoff:
+        def collect(done_set):
+            """Drain finished futures, append non-empty results to records_batch."""
+            nonlocal batch_facilities, facilities_failed
+            for done in done_set:
+                fac = pending.pop(done)
+                try:
+                    inspections = done.result()
+                except Exception as exc:
+                    facilities_failed += 1
+                    print(f"  error fetching {fac['name']}: {exc}")
                     continue
-                facilities_in_window += 1
-                permit_type_counts[f['permit_type'] or 'Unknown'] += 1
-
-                time.sleep(DELAY)
-                inspections = fetch_facility_inspections(f['fid_b64'], cutoff)
                 if not inspections:
                     continue
-
-                records_batch.append((f, inspections))
+                records_batch.append((fac, inspections))
                 batch_facilities += 1
-
                 if batch_facilities >= FLUSH_EVERY:
                     flush()
 
-            if (page + 1) % 20 == 0:
-                pending = sum(len(r[1]) for r in records_batch)
-                print(f"  page {page+1}: seen {facilities_seen}, "
-                      f"{facilities_in_window} in window, "
-                      f"{pending} pending in batch, "
-                      f"{total_new_i:,} inspections written so far")
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
+            while True:
+                facs = fetch_facility_page(page)
+                if not facs:
+                    print(f"\nReached end of facility listing at page {page}.")
+                    break
 
-            page += 1
-            time.sleep(DELAY)
+                # Full run: the listing is sorted by last_inspection_date DESC,
+                # so once a full page is past the cutoff, all subsequent pages
+                # are too. Incremental run: same early-exit once we're past the
+                # window.
+                page_max_date = max(
+                    (f['last_date'] for f in facs if f['last_date']), default=None
+                )
+                if page_max_date is not None and page_max_date < cutoff:
+                    print(f"\nPage {page} max date {page_max_date} < cutoff — stopping.")
+                    break
 
-        # Final flush for anything still in the buffer
+                for f in facs:
+                    facilities_seen += 1
+                    if f['last_date'] is None or f['last_date'] < cutoff:
+                        continue
+                    facilities_in_window += 1
+                    permit_type_counts[f['permit_type'] or 'Unknown'] += 1
+                    fut = ex.submit(fetch_facility_inspections, f['fid_b64'], cutoff)
+                    pending[fut] = f
+
+                # Backpressure: only block once the in-flight queue is "full".
+                # Loop because a single FIRST_COMPLETED wait may only return one
+                # future and we want to drop back below MAX_PENDING before
+                # submitting more.
+                while len(pending) >= MAX_PENDING:
+                    done_set, _ = concurrent.futures.wait(
+                        pending, return_when=concurrent.futures.FIRST_COMPLETED
+                    )
+                    collect(done_set)
+
+                if (page + 1) % 20 == 0:
+                    pending_insp = sum(len(r[1]) for r in records_batch)
+                    print(f"  page {page+1}: seen {facilities_seen}, "
+                          f"{facilities_in_window} in window, "
+                          f"{len(pending)} in flight, "
+                          f"{batch_facilities} facs / {pending_insp} insp pending in batch, "
+                          f"{total_new_i:,} written so far"
+                          + (f", {facilities_failed} fails" if facilities_failed else ""))
+
+                page += 1
+
+            # Drain everything still in flight after the page walk ends.
+            while pending:
+                done_set, _ = concurrent.futures.wait(
+                    pending, return_when=concurrent.futures.FIRST_COMPLETED
+                )
+                collect(done_set)
+
+        # Final DB flush for anything still in records_batch
         flush()
 
     print(f"\nDone.")
@@ -750,6 +857,9 @@ def main():
     print(f"  {total_new_r:,} new restaurants")
     print(f"  {total_new_i:,} new inspections")
     print(f"  {total_skipped:,} skipped (duplicates)")
+    if facilities_failed:
+        print(f"  {facilities_failed:,} facilities lost to hard fetch failures "
+              f"(re-run without --start-page to recover)")
     if permit_type_counts:
         print("  Permit type breakdown:")
         for pt, n in permit_type_counts.most_common():
