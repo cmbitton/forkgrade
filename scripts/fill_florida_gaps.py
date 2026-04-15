@@ -14,12 +14,14 @@ has inspections that never appear in the bulk exports. This script:
 Usage:
     python3 scripts/fill_florida_gaps.py --dry-run
     python3 scripts/fill_florida_gaps.py
+    python3 scripts/fill_florida_gaps.py --from-cache   # skip scraping, reuse cached records
 """
 
 import asyncio
 import aiohttp
 import csv
 import io
+import json
 import math
 import os
 import re
@@ -38,7 +40,7 @@ if not os.environ.get('DATABASE_URL'):
 # ── Config ────────────────────────────────────────────────────────────────────
 
 DATES_CONCURRENCY  = 100   # concurrent requests for inspectionDates pages
-DETAIL_CONCURRENCY = 100   # concurrent requests for inspectionDetail pages
+DETAIL_CONCURRENCY = 50    # concurrent requests for inspectionDetail pages (lower = fewer portal errors)
 COMMIT_EVERY       = 500
 
 CSV_URLS = [
@@ -226,19 +228,16 @@ async def fetch_detail_page(session, visit_id, license_id, sem):
     """Fetch one inspectionDetail.asp page. Returns (visit_id, violations | None)."""
     url = DETAIL_URL.format(visit_id=visit_id, license_id=license_id)
     async with sem:
-        for attempt in range(2):
+        for attempt in range(5):
             try:
-                async with session.get(url, timeout=15) as r:
+                async with session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as r:
                     if r.status >= 400:
-                        if attempt < 2:
-                            await asyncio.sleep(0.5)
-                            continue
-                        return visit_id, None
+                        await asyncio.sleep(1 * (attempt + 1))
+                        continue
                     html = await r.text(errors='replace')
                     return visit_id, parse_detail_page(html)
             except Exception:
-                if attempt < 2:
-                    await asyncio.sleep(0.5)
+                await asyncio.sleep(1 * (attempt + 1))
         return visit_id, None
 
 
@@ -371,8 +370,31 @@ async def run_async(restaurants, license_map, known_pairs, known_insp_ids, dry_r
     return records
 
 
+CACHE_FILE = Path(__file__).parent / '.florida_gap_cache.json'
+
+
+def _save_cache(records):
+    """Save scraped records to JSON so Phase 4 can resume if it crashes."""
+    serializable = []
+    for r in records:
+        s = dict(r)
+        s['insp_date'] = r['insp_date'].isoformat()
+        serializable.append(s)
+    CACHE_FILE.write_text(json.dumps(serializable))
+    print(f'  Saved {len(records):,} records to cache ({CACHE_FILE.name})', flush=True)
+
+
+def _load_cache():
+    """Load records from JSON cache."""
+    data = json.loads(CACHE_FILE.read_text())
+    for r in data:
+        r['insp_date'] = date.fromisoformat(r['insp_date'])
+    return data
+
+
 def main():
     dry_run = '--dry-run' in sys.argv
+    from_cache = '--from-cache' in sys.argv
 
     from app import create_app
     from app.db import db
@@ -449,13 +471,21 @@ def main():
             mapped = sum(1 for _, src in fl_restaurants if src in license_map)
             print(f'  Now mapped: {mapped:,}/{len(fl_restaurants):,}\n', flush=True)
 
-        # ── Run async scraping ────────────────────────────────────────────────
-        records = asyncio.run(run_async(
-            fl_restaurants, license_map, known_pairs, known_insp_ids, dry_run,
-        ))
+        # ── Run async scraping (or load from cache) ────────────────────────────
+        if from_cache and CACHE_FILE.exists():
+            print(f'Loading {CACHE_FILE.name} (skipping Phases 2-3)...', flush=True)
+            records = _load_cache()
+            print(f'  Loaded {len(records):,} records from cache', flush=True)
+        else:
+            records = asyncio.run(run_async(
+                fl_restaurants, license_map, known_pairs, known_insp_ids, dry_run,
+            ))
 
         if not records:
             return
+
+        # Save cache before any DB writes so we can resume with --from-cache
+        _save_cache(records)
 
         if dry_run:
             print('--dry-run: showing first 50 missing inspections:')
@@ -467,13 +497,27 @@ def main():
             return
 
         # ── Phase 4: Write to DB ──────────────────────────────────────────────
-        print(f'Phase 4: Writing {len(records):,} inspections to DB...', flush=True)
+        # Reconnect — the DB connection has been idle for hours during scraping
+        try:
+            db.session.remove()
+        except Exception:
+            pass
+        db.engine.dispose()
+        print(f'Phase 4: Writing {len(records):,} inspections to DB (fresh connection)...',
+              flush=True)
 
-        # Build restaurant lookup for updating latest_inspection_date
+        # Build restaurant lookup in batches to avoid massive IN clause
         rid_set = {r['restaurant_id'] for r in records}
-        rid_to_restaurant = {
-            r.id: r for r in Restaurant.query.filter(Restaurant.id.in_(rid_set)).all()
-        }
+        rid_to_restaurant = {}
+        rid_list = list(rid_set)
+        BATCH = 500
+        for i in range(0, len(rid_list), BATCH):
+            batch = rid_list[i:i + BATCH]
+            for r in Restaurant.query.filter(Restaurant.id.in_(batch)).all():
+                rid_to_restaurant[r.id] = r
+            if (i // BATCH) % 10 == 0:
+                print(f'  loaded {min(i + BATCH, len(rid_list)):,}/{len(rid_list):,} restaurants...',
+                      flush=True)
 
         written = 0
         for rec in records:
@@ -523,6 +567,11 @@ def main():
 
         db.session.commit()
         print(f'\nDone. +{written:,} inspections written to DB.', flush=True)
+
+        # Clean up cache file after successful write
+        if CACHE_FILE.exists():
+            CACHE_FILE.unlink()
+            print('  Cache file removed.', flush=True)
 
 
 if __name__ == '__main__':
