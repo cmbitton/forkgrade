@@ -529,11 +529,28 @@ def fetch_facility_inspections(fid_b64: str, since: date) -> list:
         raise RuntimeError(f"hard fetch failure for facility {fid_b64}")
     if not isinstance(data, list):
         return []
+
+    # Guard against cross-contamination. On the 2026-04-15 --full run we saw
+    # 795 facilities end up as orphan restaurants because the portal returned
+    # inspections whose facilityId didn't match the facility we'd requested;
+    # those inspections got written under the earlier restaurant and then the
+    # correct restaurant's real inspections were skipped as "dupes". Drop any
+    # response row where facilityId decodes to something other than what we
+    # asked for, and log so a regression is visible.
+    expected_fid = decode_facility_id(fid_b64)
     out = []
+    mismatched = 0
     for ins in data:
+        got_fid = decode_facility_id(ins.get('facilityId') or '')
+        if expected_fid and got_fid and got_fid != expected_fid:
+            mismatched += 1
+            continue
         parsed = parse_inspection(ins)
         if parsed and parsed['date'] >= since:
             out.append(parsed)
+    if mismatched:
+        print(f"  !! facility {expected_fid}: dropped {mismatched} "
+              f"inspection(s) with mismatched facilityId")
     return out
 
 
