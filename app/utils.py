@@ -134,16 +134,25 @@ def search_restaurants(q, region=None, city=None, sort='date', sort_dir=None, pa
     _defaults = {'date': 'desc', 'score': 'desc', 'name': 'asc'}
     if sort_dir is None:
         sort_dir = _defaults.get(sort, 'desc')
-    # Normalize: replace special chars with spaces, collapse, split into tokens
-    tokens = re.sub(r'[^a-zA-Z0-9]+', ' ', q).split()
+    # Normalize: drop apostrophes (both ASCII and curly U+2019) BEFORE the
+    # alphanum split so "domino's" collapses to a single "dominos" token instead
+    # of ["domino", "s"]. The bare "s" would otherwise ILIKE-match nearly every
+    # restaurant name on the second token, swamping the real result.
+    q_norm = q.replace("'", '').replace('\u2019', '')
+    tokens = re.sub(r'[^a-zA-Z0-9]+', ' ', q_norm).split()
     tokens = [t for t in tokens if t.lower() not in _STOP_WORDS]
     if not tokens:
         return [], 0
 
-    # ILIKE directly on name — no regexp_replace, no per-row function eval.
-    # Postgres can use a pg_trgm GIN index if one exists; even without one,
-    # plain ILIKE is far cheaper than regexp_replace + ILIKE.
-    name_filters = db.and_(*(Restaurant.name.ilike(f'%{t}%') for t in tokens))
+    # Match against the name with apostrophes stripped on the SQL side too —
+    # otherwise "dominos" wouldn't find "Domino's Pizza" because the literal
+    # ' breaks the ILIKE substring. REPLACE is a cheap deterministic byte
+    # substitution (basically memcpy), nothing like the regexp_replace we used
+    # to do here. We give up any pg_trgm GIN index on Restaurant.name, but
+    # there isn't one in prod and full scans on this column were already the
+    # path. Both apostrophe variants get stripped in one nested REPLACE.
+    name_col = func.replace(func.replace(Restaurant.name, "'", ''), '\u2019', '')
+    name_filters = db.and_(*(name_col.ilike(f'%{t}%') for t in tokens))
 
     # Count on restaurants only — no outerjoin needed
     count_q = Restaurant.query.filter(name_filters)
