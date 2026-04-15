@@ -17,7 +17,18 @@ def _cuisine_slug(label: str) -> str:
 
 
 def get_nearby_restaurants(restaurant, limit=3):
-    """Return up to `limit` nearby (Restaurant, score, score_tier) tuples, sorted by distance."""
+    """Return up to `limit` nearby (Restaurant, score, score_tier) tuples, sorted by distance.
+
+    Strategy:
+      1. If the target has real lat/lng (NYC, Chicago, RI, Boston), do a
+         cos(lat)-corrected bounding box around it within the same region.
+         Exclude (0,0) sentinel coords — NYC has ~366 such rows that would
+         otherwise cluster as "0m away".
+      2. Otherwise (FL/TX/GA/AZ/PA — ~70% of dataset has no lat/lng), fall back
+         to same ZIP first, then same city to fill any remaining slots. Ordered
+         by latest_inspection_date so results are deterministic and surface
+         recently-inspected places, not whatever Postgres scans first.
+    """
     from app.models.inspection import Inspection
 
     def _with_scores(restaurants):
@@ -43,13 +54,39 @@ def get_nearby_restaurants(restaurant, limit=3):
             else:
                 tier = None
             score_map[rid] = (score, tier)
+        # Preserve incoming order (which is sorted by distance for the geo path).
         return [(r, *score_map.get(r.id, (None, None))) for r in restaurants]
 
-    if restaurant.latitude is not None and restaurant.longitude is not None:
-        # Use a bounding box (~5km) to avoid loading the entire table
-        radius = 0.05  # ~5.5km at RI latitudes
+    # ── Phase 1: geographic search ───────────────────────────────────────────
+    has_real_coords = (
+        restaurant.latitude is not None
+        and restaurant.longitude is not None
+        and not (restaurant.latitude == 0 and restaurant.longitude == 0)
+    )
+    if has_real_coords:
+        # cos(latitude) corrects for longitude shrinking toward the poles —
+        # at NYC (40.7°N), 0.01° longitude is only ~0.84km vs ~1.11km for
+        # latitude. Without this, the box is rectangular not square, and the
+        # Euclidean sort under-counts E-W distance, misordering candidates.
+        cos_lat = max(0.1, math.cos(math.radians(restaurant.latitude)))
+
+        # Cos-corrected squared distance, computed on the SQL side. We sort
+        # on this with ORDER BY so Postgres returns the actual closest rows,
+        # not whatever order the bounding-box scan happened to produce. NYC
+        # in particular has dense neighborhoods with thousands of restaurants
+        # in a 5km box — without SQL ORDER BY, a Python-side `limit(N)` was
+        # picking 500 arbitrary candidates and missing the real closest.
+        # No sqrt needed — squared distance is monotonic for ordering.
+        lat_diff = Restaurant.latitude - restaurant.latitude
+        lng_diff = (Restaurant.longitude - restaurant.longitude) * cos_lat
+        dist_sq_expr = lat_diff * lat_diff + lng_diff * lng_diff
+
+        # Start at a 5km half-side; grow to 10 then 20 if we don't have enough.
+        candidates = []
         for attempt in range(3):
-            r = radius * (2 ** attempt)
+            half_km = 5.0 * (2 ** attempt)
+            dlat = half_km / 111.0
+            dlng = half_km / (111.0 * cos_lat)
             candidates = (
                 Restaurant.query
                 .filter(
@@ -57,12 +94,16 @@ def get_nearby_restaurants(restaurant, limit=3):
                     Restaurant.id != restaurant.id,
                     Restaurant.latitude.isnot(None),
                     Restaurant.longitude.isnot(None),
+                    # Exclude (0,0) sentinel — ~366 such rows in NYC alone
+                    # would otherwise all show as "0m away" from each other.
+                    db.or_(Restaurant.latitude != 0, Restaurant.longitude != 0),
                     Restaurant.latitude.between(
-                        restaurant.latitude - r, restaurant.latitude + r),
+                        restaurant.latitude - dlat, restaurant.latitude + dlat),
                     Restaurant.longitude.between(
-                        restaurant.longitude - r, restaurant.longitude + r),
+                        restaurant.longitude - dlng, restaurant.longitude + dlng),
                     Restaurant.latest_inspection_date.isnot(None),
                 )
+                .order_by(dist_sq_expr)
                 .limit(50)
                 .all()
             )
@@ -70,25 +111,43 @@ def get_nearby_restaurants(restaurant, limit=3):
                 break
 
         if candidates:
-            def dist(c):
-                dlat = c.latitude - restaurant.latitude
-                dlng = c.longitude - restaurant.longitude
-                return math.sqrt(dlat * dlat + dlng * dlng)
-            candidates.sort(key=dist)
+            # SQL has already returned them in distance order — just slice.
             return _with_scores(candidates[:limit])
 
-    # Fallback: same city
-    fallback = (
-        Restaurant.query
-        .filter(
-            Restaurant.region == restaurant.region,
-            Restaurant.city == restaurant.city,
-            Restaurant.id != restaurant.id,
-            Restaurant.latest_inspection_date.isnot(None),
+    # ── Phase 2: ZIP-then-city fallback ──────────────────────────────────────
+    base_filters = [
+        Restaurant.region == restaurant.region,
+        Restaurant.id != restaurant.id,
+        Restaurant.latest_inspection_date.isnot(None),
+    ]
+    fallback = []
+    # Compare on the first 5 chars of ZIP on BOTH sides — Florida sometimes
+    # stores the +4 jammed in (e.g. "331767930") while neighbors store plain
+    # 5-char zips ("33176"). A literal == match would never find them.
+    target_zip5 = (restaurant.zip or '').strip()[:5] if restaurant.zip else ''
+    if target_zip5:
+        fallback = (
+            Restaurant.query
+            .filter(
+                *base_filters,
+                db.func.substr(Restaurant.zip, 1, 5) == target_zip5,
+            )
+            .order_by(Restaurant.latest_inspection_date.desc())
+            .limit(limit)
+            .all()
         )
-        .limit(limit)
-        .all()
-    )
+    if len(fallback) < limit and restaurant.city:
+        existing_ids = {r.id for r in fallback}
+        city_q = Restaurant.query.filter(*base_filters, Restaurant.city == restaurant.city)
+        if existing_ids:
+            city_q = city_q.filter(Restaurant.id.notin_(existing_ids))
+        more = (
+            city_q
+            .order_by(Restaurant.latest_inspection_date.desc())
+            .limit(limit - len(fallback))
+            .all()
+        )
+        fallback.extend(more)
     return _with_scores(fallback)
 
 
