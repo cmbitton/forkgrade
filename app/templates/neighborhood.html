@@ -2,6 +2,7 @@
 {% from 'components/breadcrumb.html' import render_breadcrumb %}
 {% from 'components/pagination.html' import render_pagination %}
 {% from 'components/restaurant_row.html' import render_restaurant_row %}
+{% from 'components/search_results.html' import render_search_results %}
 
 {% block breadcrumb %}
 {{ render_breadcrumb(breadcrumbs) }}
@@ -15,6 +16,9 @@
 {% set total_pages = total_pages if total_pages is defined else 1 %}
 {% set base_path = base_path if base_path is defined else '' %}
 {% set total = total if (total is defined and total is not none) else rows|length %}
+{% set search_query = search_query if search_query is defined else '' %}
+{% set search_results = search_results if search_results is defined else none %}
+{% set is_searching = (not is_cuisine) and search_query %}
 
 {% block content %}
 <div class="container">
@@ -32,6 +36,30 @@
             </div>
         </div>
     </div>
+
+    {# Search bar — only on real city pages, not on /region/city/cuisine/ variants. #}
+    {% if not is_cuisine %}
+    <div style="margin-bottom: 24px;">
+        <form class="search-form" action="{{ base_path }}" method="get" style="max-width: 100%; justify-content: flex-start;">
+            <input
+                type="text"
+                name="q"
+                class="search-input"
+                placeholder="Search locations in {{ city_name }}..."
+                value="{{ search_query or '' }}"
+                autocomplete="off"
+            >
+            <button type="submit" class="search-btn">Search</button>
+        </form>
+    </div>
+    {% endif %}
+
+    {% if is_searching %}
+    {{ render_search_results(
+        search_results, search_total, search_sort, search_page, search_total_pages,
+        search_base_path, search_query, show_region=false, sort_dir=search_sort_dir
+    ) }}
+    {% else %}
 
     {# Wrapper lets CSS reorder Browse-by-Type vs restaurant table on mobile #}
     <div class="city-page-body">
@@ -86,6 +114,7 @@
         {% endif %}
 
     </div>{# /city-page-body #}
+    {% endif %}{# /is_searching #}
 
 </div>
 {% endblock %}

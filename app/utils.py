@@ -117,13 +117,17 @@ def region_location(region: str) -> str:
 _STOP_WORDS = {'a', 'an', 'and', 'at', 'by', 'for', 'in', 'of', 'or', 'the', 'to'}
 
 
-def search_restaurants(q, region=None, sort='date', sort_dir=None, page=1, per_page=25):
+def search_restaurants(q, region=None, city=None, sort='date', sort_dir=None, page=1, per_page=25):
     """Return (rows, total) for a name search.
 
     rows  — list of (Restaurant, Inspection|None) tuples
     total — total matching count (for pagination)
 
     region: if given, scopes to that region only.
+    city:   if given (along with region), scopes to that city. Matched against
+            the raw Restaurant.city column, so pass the canonical city name as
+            stored in the DB (the same string the city page route resolves
+            from the slug).
     sort:   'date', 'score', 'name'
     sort_dir: 'asc' or 'desc' (defaults: date=desc, score=desc, name=asc)
     """
@@ -145,6 +149,8 @@ def search_restaurants(q, region=None, sort='date', sort_dir=None, page=1, per_p
     count_q = Restaurant.query.filter(name_filters)
     if region:
         count_q = count_q.filter(Restaurant.region == region)
+    if city:
+        count_q = count_q.filter(Restaurant.city == city)
     total = count_q.count()
 
     query = (
@@ -159,6 +165,8 @@ def search_restaurants(q, region=None, sort='date', sort_dir=None, page=1, per_p
 
     if region:
         query = query.filter(Restaurant.region == region)
+    if city:
+        query = query.filter(Restaurant.city == city)
 
     if sort == 'score':
         score_col = Inspection.score.desc() if sort_dir == 'desc' else Inspection.score.asc()

@@ -348,7 +348,17 @@ def render_cuisine(region, cuisine_slug_str, cuisine_label, rows,
 
 
 def render_neighborhood(region, city_slug_str, city_name, restaurants_with_scores,
-                        sort='date', sort_dir=None, page=1, per_page=25, total=None):
+                        sort='date', sort_dir=None, page=1, per_page=25, total=None,
+                        search_query=None):
+    """Render a city page.
+
+    When `search_query` is set, `restaurants_with_scores` and `total` are
+    interpreted as search results (filtered to this city) instead of the
+    full city listing — the template hides the regular list + browse-by-type
+    section and renders the search_results component instead. The browse +
+    Top Cities sections also fall back to the city's normal contents when the
+    search yields nothing, so users always have a way back into the city page.
+    """
     site_name      = current_app.config['SITE_NAME']
     base_url       = current_app.config['BASE_URL']
     region_display = get_region_display(region)
@@ -388,6 +398,14 @@ def render_neighborhood(region, city_slug_str, city_name, restaurants_with_score
         total         = total,
         total_pages   = total_pages,
         base_path     = f'/{region}/{city_slug_str}/',
+        search_query       = search_query or '',
+        search_results     = restaurants_with_scores if search_query else None,
+        search_total       = total if search_query else 0,
+        search_page        = page,
+        search_total_pages = total_pages,
+        search_sort        = sort,
+        search_sort_dir    = sort_dir,
+        search_base_path   = f'/{region}/{city_slug_str}/',
     )
 
 
@@ -582,10 +600,24 @@ def region_sub(region, path_slug):
         None
     )
     if city_name:
+        q = request.args.get('q', '').strip()
         sort = request.args.get('sort', 'date')
         sort_dir = request.args.get('dir', _SORT_DEFAULTS.get(sort, 'desc'))
         page = max(1, int(request.args.get('page', 1) or 1))
         per_page = 25
+
+        # Search within this city — bypass the city listing cache entirely.
+        # Search is name-filtered + region+city scoped via search_restaurants.
+        if q:
+            rows, total = search_restaurants(
+                q, region=region, city=city_name,
+                sort=sort, sort_dir=sort_dir, page=page, per_page=per_page,
+            )
+            return render_neighborhood(
+                region, path_slug, city_name, rows,
+                sort=sort, sort_dir=sort_dir, page=page, per_page=per_page,
+                total=total, search_query=q,
+            )
 
         city_cache_key = f'city_page_{region}_{path_slug}_{sort}_{sort_dir}_{page}'
         cached = cache.get(city_cache_key)
