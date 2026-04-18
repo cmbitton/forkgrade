@@ -6,8 +6,9 @@ Usage:
     python3 scripts/import_ri.py              # sync last 5 days (default)
     python3 scripts/import_ri.py --days=3     # sync last N days
     python3 scripts/import_ri.py --full-sync  # check ALL existing restaurants for missing inspections
-    python3 scripts/import_ri.py --rescrape   # re-fetch HTML codes for all existing RI data,
-                                              # update only inspections whose score changes
+    python3 scripts/import_ri.py --rescrape   # re-fetch HTML codes + inspector notes + COS
+                                              # flags for all existing RI data; updates any
+                                              # inspection whose score OR violation content changes
     python3 scripts/import_ri.py --rescrape --dry-run  # preview without writing
 
 Set GOOGLE_MAPS_KEY to enrich new restaurants with cuisine type via Google Places.
@@ -141,7 +142,32 @@ def fetch_json(url, retries=3):
                 print(f"  fetch_json failed after {retries} attempts, skipping.")
                 return None
 
-def fetch_html_codes(path):
+_VIOL_BLOCK_RE = re.compile(
+    r'Violation of Code:\s*<span[^>]*>\s*([^<]+?)\s*</span>(.*?)'
+    r'(?=Violation of Code:|</table>|\Z)',
+    re.DOTALL | re.IGNORECASE,
+)
+# FDA-style code prefix; matches the old behavior that only extracted the
+# leading subsection (some RI spans list a compound like "2-102.11(A), B) and
+# (C)(1)" — we store and score off the first subsection only).
+_CODE_PREFIX_RE = re.compile(r'\d+-\d+\.\d+(?:\([A-Z]\))?')
+# Markers that end the narrative body. `<b ` catches "Correct By:" which is
+# always wrapped in <b style=...>.
+_NARRATIVE_ENDERS = ('Corrected On-Site', 'Repeat Violation', 'New Violation', '<b ')
+
+def fetch_html_violations(path):
+    """Return list of {code, notes, cos} in document order from the printable HTML.
+
+    The printable RI inspection page embeds the inspector's narrative and
+    Corrected-On-Site flag that the JSON API omits (the API only exposes the
+    short checklist description in v[0]). Each violation row looks like:
+
+        Violation of Code: <span ...>3-302.11</span> NARRATIVE TEXT.
+        &nbsp;Corrected On-Site. &nbsp;New Violation.
+        <b style="color:red;">Correct By: MM/DD/YYYY</b>
+
+    Returned dicts align positionally with the JSON's violation entries.
+    """
     clean = re.sub(r'^\.\.?/', '', path)
     safe_chars = set('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~:/?#[]@!$&\'()*+,;=%')
     safe = ''.join(c if c in safe_chars else urllib.parse.quote(c) for c in clean)
@@ -150,15 +176,41 @@ def fetch_html_codes(path):
     try:
         with urllib.request.urlopen(req, timeout=15) as r:
             html = r.read().decode("utf-8", errors="replace")
-        return re.findall(r"Violation of Code:.*?([\d]+-[\d]+\.[\d]+(?:\([A-Z]\))?)", html)
     except Exception:
         return []
 
-def parse_violations(vdict, codes):
+    results = []
+    for m in _VIOL_BLOCK_RE.finditer(html):
+        span_text = m.group(1).strip()
+        prefix    = _CODE_PREFIX_RE.match(span_text)
+        code      = prefix.group(0) if prefix else span_text
+        rest      = m.group(2)
+        cut = len(rest)
+        for marker in _NARRATIVE_ENDERS:
+            idx = rest.find(marker)
+            if 0 <= idx < cut:
+                cut = idx
+        narrative = rest[:cut]
+        narrative = re.sub(r'<[^>]+>', ' ', narrative)
+        narrative = narrative.replace('&nbsp;', ' ').replace('&amp;', '&')
+        narrative = re.sub(r'\s+', ' ', narrative).strip()
+        cos = 'Corrected On-Site' in rest
+        results.append({'code': code, 'notes': narrative or None, 'cos': cos})
+    return results
+
+def parse_violations(vdict, html_violations):
+    """Merge JSON check-box violations with HTML-extracted narrative + flags.
+
+    html_violations is positionally aligned with vdict's insertion order —
+    both come from the same inspection in document order.
+    """
     out = []
     for idx, text in enumerate(v[0] for v in vdict.values() if v and v[0]):
         parts = text.split(" - ", 1)
-        code = codes[idx] if idx < len(codes) else ""
+        hv    = html_violations[idx] if idx < len(html_violations) else {}
+        code  = hv.get('code', '') or ''
+        notes = hv.get('notes')
+        cos   = bool(hv.get('cos'))
         if len(parts) == 2:
             try:
                 n    = int(parts[0].strip())
@@ -173,7 +225,13 @@ def parse_violations(vdict, codes):
         else:
             desc = text.strip().capitalize()
             sev  = "minor" if not code else _severity_from_code(code)
-        out.append({"code": code, "description": desc, "severity": sev})
+        out.append({
+            "code": code,
+            "description": desc,
+            "severity": sev,
+            "inspector_notes": notes,
+            "corrected_on_site": cos,
+        })
     return out
 
 def _severity_from_code(code):
@@ -310,11 +368,11 @@ def import_inspections(restaurant_id, source_id, since_date=None):
             continue
 
         pp     = insp_data.get("printablePath", "")
-        codes  = fetch_html_codes(pp) if pp else []
+        html_v = fetch_html_violations(pp) if pp else []
         if pp:
             time.sleep(0.15)
 
-        violations = parse_violations(insp_data.get("violations", {}), codes)
+        violations = parse_violations(insp_data.get("violations", {}), html_v)
         risk  = sum(3 if v["severity"]=="critical" else 2 if v["severity"]=="major" else 1
                     for v in violations)
         score = risk_to_score(risk)
@@ -338,7 +396,8 @@ def import_inspections(restaurant_id, source_id, since_date=None):
                 violation_code    = v["code"],
                 description       = v["description"],
                 severity          = v["severity"],
-                corrected_on_site = False,
+                inspector_notes   = v["inspector_notes"],
+                corrected_on_site = v["corrected_on_site"],
             ))
         added += 1
 
@@ -347,12 +406,13 @@ def import_inspections(restaurant_id, source_id, since_date=None):
 
 def rescrape_ri(dry_run=False, skip=0):
     """
-    Re-fetch HTML violation codes for all existing RI inspections and update
-    any whose score changes as a result of proper FDA code-based severity.
+    Re-fetch HTML violation rows for all existing RI inspections and update any
+    whose score, code, description, inspector notes, or Corrected-On-Site flag
+    has changed vs what's stored.
 
     Skips restaurants with zero violations (nothing to improve).
-    Only writes to the DB when the recomputed score differs from what's stored.
-    Clears ai_summary only for restaurants whose latest inspection score changed.
+    Clears ai_summary only for restaurants whose latest inspection score changed
+    (notes/COS changes alone don't invalidate the summary, which summarizes score/severity).
 
     skip: number of restaurants to skip at the start (for resuming after a crash).
     """
@@ -420,18 +480,31 @@ def rescrape_ri(dry_run=False, skip=0):
                         continue  # inspection older than what API returns
 
                     pp, vdict = api_map[insp.inspection_date]
-                    codes     = fetch_html_codes(pp)
-                    if not codes:
-                        continue  # no codes found in HTML (e.g. blank report)
+                    html_v    = fetch_html_violations(pp)
+                    if not html_v:
+                        continue  # no violation rows parsed from HTML (e.g. blank report)
 
-                    new_violations = parse_violations(vdict, codes)
+                    new_violations = parse_violations(vdict, html_v)
                     new_risk  = sum(3 if v["severity"] == "critical" else
                                     2 if v["severity"] == "major" else 1
                                     for v in new_violations)
                     new_score = risk_to_score(new_risk)
 
                     total_checked += 1
-                    if new_score == insp.score:
+
+                    old_sigs = [
+                        (v.violation_code or '', v.description or '', v.severity or '',
+                         v.inspector_notes or '', bool(v.corrected_on_site))
+                        for v in insp.violations
+                    ]
+                    new_sigs = [
+                        (v["code"] or '', v["description"] or '', v["severity"] or '',
+                         v["inspector_notes"] or '', bool(v["corrected_on_site"]))
+                        for v in new_violations
+                    ]
+                    score_changed   = (new_score != insp.score)
+                    content_changed = (old_sigs != new_sigs)
+                    if not score_changed and not content_changed:
                         continue
 
                     old_score = insp.score
@@ -443,17 +516,22 @@ def rescrape_ri(dry_run=False, skip=0):
                                 violation_code    = v["code"],
                                 description       = v["description"],
                                 severity          = v["severity"],
-                                corrected_on_site = False,
+                                inspector_notes   = v["inspector_notes"],
+                                corrected_on_site = v["corrected_on_site"],
                             ))
-                        insp.score      = new_score
-                        insp.risk_score = new_risk
-                        insp.result     = score_to_result(new_score)
+                        if score_changed:
+                            insp.score      = new_score
+                            insp.risk_score = new_risk
+                            insp.result     = score_to_result(new_score)
 
-                    if insp.inspection_date == latest_date:
+                    if insp.inspection_date == latest_date and score_changed:
                         restaurant_score_changed = True
 
                     total_updated += 1
-                    print(f"  {restaurant.name} | {insp.inspection_date} | score {old_score} → {new_score}")
+                    if score_changed:
+                        print(f"  {restaurant.name} | {insp.inspection_date} | score {old_score} → {new_score}")
+                    else:
+                        print(f"  {restaurant.name} | {insp.inspection_date} | notes/COS backfill (score unchanged: {old_score})")
 
                     time.sleep(0.15)
 
@@ -487,8 +565,8 @@ def rescrape_ri(dry_run=False, skip=0):
             db.session.commit()
 
         print(f"\nRescrape {'(dry run) ' if dry_run else ''}complete:")
-        print(f"  {total_checked:,} inspections checked with HTML codes")
-        print(f"  {total_updated:,} inspections updated (score changed)")
+        print(f"  {total_checked:,} inspections checked against HTML")
+        print(f"  {total_updated:,} inspections updated (score, notes, or COS changed)")
         print(f"  {total_skipped:,} restaurants skipped (API returned nothing or connection error)")
 
 
