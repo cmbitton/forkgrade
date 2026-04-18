@@ -1,6 +1,6 @@
 {% from 'components/violation_row.html' import render_violation_row %}
 
-{% macro render_timeline_item(inspection) %}
+{% macro render_timeline_item(inspection, expanded=false) %}
 <div class="timeline-item">
     <div class="timeline-date">{{ inspection.inspection_date|format_date }}</div>
     <div class="timeline-content">
@@ -9,7 +9,7 @@
             {{ inspection.violation_summary }}
         </div>
         {% if inspection.violations %}
-        <details class="timeline-violations">
+        <details class="timeline-violations"{% if expanded %} open{% endif %}>
             <summary class="timeline-violations-toggle">
                 View {{ inspection.violations|length }} violation{{ 's' if inspection.violations|length != 1 else '' }}
             </summary>

@@ -867,6 +867,33 @@ nav {
     .lb-mobile-meta { display: block; }
     .region-stats { flex-wrap: wrap; gap: 16px; }
     .violation-legend { flex-wrap: wrap; gap: 10px; }
+    /* Timeline: restructure to 2-col grid so expanded violations get full width
+       (date + score share row 1; content/violations span both cols below) */
+    .timeline-section { padding: 20px 16px; }
+    .timeline-item {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        column-gap: 12px;
+        row-gap: 4px;
+        align-items: start;
+        gap: 4px 12px;
+    }
+    .timeline-date {
+        grid-column: 1;
+        grid-row: 1;
+        min-width: 0;
+        padding-top: 0;
+        align-self: center;
+    }
+    .timeline-score {
+        grid-column: 2;
+        grid-row: 1;
+        align-self: center;
+    }
+    .timeline-content { display: contents; }
+    .timeline-type,
+    .timeline-detail,
+    .timeline-violations { grid-column: 1 / -1; }
     .regions-grid {
         grid-template-columns: 1fr;
         gap: 8px;

@@ -1,7 +1,6 @@
 {% extends 'base.html' %}
 {% from 'components/breadcrumb.html' import render_breadcrumb %}
 {% from 'components/score_ring.html' import render_score_ring %}
-{% from 'components/violation_row.html' import render_violation_row %}
 {% from 'components/inspection_timeline.html' import render_timeline_item %}
 {% from 'components/nearby_restaurants.html' import render_nearby %}
 {#% from 'components/ad_unit.html' import render_ad %#}
@@ -97,7 +96,7 @@
     <div class="timeline-section">
         <div class="section-title">Inspection History</div>
         {% for inspection in inspections[:5] %}
-            {{ render_timeline_item(inspection) }}
+            {{ render_timeline_item(inspection, expanded=loop.first) }}
         {% endfor %}
         {% if inspections|length > 5 %}
         <input type="checkbox" id="timeline-toggle" class="timeline-toggle">
@@ -111,66 +110,6 @@
             <span class="tl-hide">Show less</span>
         </label>
         {% endif %}
-    </div>
-    {% endif %}
-
-    <!-- VIOLATIONS - MOST RECENT INSPECTION -->
-    {% if latest_inspection %}
-    <div class="violations-section">
-        <div class="section-title">
-            Violations — {{ latest_inspection.inspection_date|format_date }} Inspection
-        </div>
-
-        <div class="violation-rows">
-        {% if latest_violations %}
-            {% for violation in latest_violations %}
-                {{ render_violation_row(violation) }}
-            {% endfor %}
-        {% else %}
-        <div style="padding: 16px 0; color: var(--text-secondary); font-size: 14px;">
-            No violations recorded for this inspection.
-        </div>
-        {% endif %}
-        </div>
-
-        <div class="violation-legend">
-            {% if violation_scheme == 'nyc' %}
-            <div class="legend-item">
-                <div class="severity-dot critical" style="margin-top:0"></div>
-                Critical
-            </div>
-            <div class="legend-item">
-                <div class="severity-dot minor" style="margin-top:0"></div>
-                Not Critical
-            </div>
-            {% elif violation_scheme == 'houston' %}
-            <div class="legend-item">
-                <div class="severity-dot critical" style="margin-top:0"></div>
-                Substantial (Critical)
-            </div>
-            <div class="legend-item">
-                <div class="severity-dot major" style="margin-top:0"></div>
-                Serious (Major)
-            </div>
-            <div class="legend-item">
-                <div class="severity-dot minor" style="margin-top:0"></div>
-                General (Minor)
-            </div>
-            {% else %}
-            <div class="legend-item">
-                <div class="severity-dot critical" style="margin-top:0"></div>
-                Priority (Critical)
-            </div>
-            <div class="legend-item">
-                <div class="severity-dot major" style="margin-top:0"></div>
-                Priority Foundation (Major)
-            </div>
-            <div class="legend-item">
-                <div class="severity-dot minor" style="margin-top:0"></div>
-                Core (Minor)
-            </div>
-            {% endif %}
-        </div>
     </div>
     {% endif %}
 
