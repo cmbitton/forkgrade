@@ -1282,6 +1282,40 @@ nav {
     box-shadow: 0 2px 8px rgba(45,95,46,0.1);
 }
 
+/* INLINE VIOLATIONS IN TIMELINE */
+.timeline-violations {
+    margin-top: 8px;
+}
+.timeline-violations-toggle {
+    font-size: 13px;
+    color: var(--accent);
+    cursor: pointer;
+    user-select: none;
+    list-style: none;
+}
+.timeline-violations-toggle::-webkit-details-marker { display: none; }
+.timeline-violations-toggle::before {
+    content: '▸ ';
+    display: inline;
+}
+details[open] > .timeline-violations-toggle::before {
+    content: '▾ ';
+}
+.timeline-violations-toggle:hover {
+    text-decoration: underline;
+}
+.timeline-violations .violation-rows {
+    margin-top: 8px;
+    padding-left: 4px;
+    border-left: 2px solid var(--border);
+}
+.timeline-violations .violation-row {
+    padding: 10px 0 10px 12px;
+}
+.timeline-violations .violation-row:last-child {
+    border-bottom: none;
+}
+
 /* INSPECTION TIMELINE COLLAPSE */
 .timeline-toggle { display: none; }
 .timeline-overflow { display: none; }
