@@ -41,7 +41,13 @@ class Inspection(db.Model):
         'Violation',
         backref='inspection',
         lazy='select',
-        cascade='all, delete-orphan'
+        cascade='all, delete-orphan',
+        order_by=(
+            "case("
+            "(Violation.severity == 'critical', 0), "
+            "(Violation.severity == 'major', 1), "
+            "else_=2)"
+        ),
     )
 
     @property

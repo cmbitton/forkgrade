@@ -54,6 +54,11 @@ REGION_INFO = {
         'state_abbr': 'GA',
         'aliases': ['GA', 'Atlanta', 'ATL'],
     },
+    'tennessee': {
+        'display': 'Tennessee',
+        'state_abbr': 'TN',
+        'aliases': ['TN', 'Nashville', 'Memphis', 'Knoxville', 'Chattanooga', 'BNA', 'MEM'],
+    },
 }
 
 
