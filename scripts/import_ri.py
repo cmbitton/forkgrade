@@ -182,7 +182,10 @@ def fetch_html_violations(path):
     results = []
     for m in _VIOL_BLOCK_RE.finditer(html):
         span_text = m.group(1).strip()
-        prefix    = _CODE_PREFIX_RE.match(span_text)
+        # Use search() not match() — some RI spans bracket the code like
+        # "[2-401.11]", and the prior fetch_html_codes regex also looked for
+        # the pattern anywhere (not anchored), so this preserves old behavior.
+        prefix    = _CODE_PREFIX_RE.search(span_text)
         code      = prefix.group(0) if prefix else span_text
         rest      = m.group(2)
         cut = len(rest)
