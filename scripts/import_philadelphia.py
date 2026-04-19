@@ -31,6 +31,11 @@ Usage:
   python3 scripts/import_philadelphia.py --full
   python3 scripts/import_philadelphia.py --full --since=2023-01-01
   python3 scripts/import_philadelphia.py --dry-run
+  python3 scripts/import_philadelphia.py --backfill-types            # patch inspection_type on
+                                                                     # existing rows from the report
+                                                                     # HTML (Routine, Reinspection,
+                                                                     # Variance Review, etc.)
+  python3 scripts/import_philadelphia.py --backfill-types --dry-run  # preview without writing
 """
 
 import html as _html
@@ -258,6 +263,31 @@ _OBS_ROW_RE = re.compile(
     re.DOTALL | re.IGNORECASE
 )
 
+# "Purpose of Inspection" cell on the report header:
+#   <b style="font-size:11px;">Purpose of Inspection</b><br>VALUE&nbsp;</td>
+# Values seen in the wild: "Inspection", "Reinspection", "Variance Review".
+_PURPOSE_RE = re.compile(
+    r'<b[^>]*>\s*Purpose of Inspection\s*</b>\s*<br[^>]*>([^<]+)',
+    re.IGNORECASE,
+)
+
+def extract_purpose(html: str) -> str:
+    """Pull 'Purpose of Inspection' out of the report HTML.
+
+    Phila uses the literal value 'Inspection' for routine visits — normalize
+    that to 'Routine' so the timeline UI matches the rest of the app.
+    Reinspection / Variance Review / etc. pass through verbatim.
+    """
+    if not html:
+        return 'Routine'
+    m = _PURPOSE_RE.search(html)
+    if not m:
+        return 'Routine'
+    val = _html.unescape(m.group(1)).replace('\xa0', ' ').replace('&nbsp;', ' ').strip()
+    if not val or val.lower() == 'inspection':
+        return 'Routine'
+    return val
+
 _PA_CODE_RE = re.compile(r'\[([^\]]+)\]')
 _COS_RE     = re.compile(r'corrected\s+on.site', re.IGNORECASE)
 _REPEAT_RE  = re.compile(r'repeat\s+violation', re.IGNORECASE)
@@ -335,7 +365,8 @@ def parse_inspection_page(html: str, insp_id: str) -> dict | None:
             'corrected': corrected,
         })
 
-    return {'insp_id': insp_id, 'violations': violations}
+    return {'insp_id': insp_id, 'violations': violations,
+            'inspection_type': extract_purpose(html)}
 
 
 def _fetch_insp_page(insp_id: str) -> tuple[str, dict | None]:
@@ -426,7 +457,7 @@ def write_chunk(records: list[dict], dry_run: bool,
             restaurant_id   = restaurant.id,
             inspection_date = insp_date,
             source_id       = rec['insp_id'],
-            inspection_type = 'Routine',
+            inspection_type = detail.get('inspection_type') or 'Routine',
             score           = score,
             risk_score      = risk,
             result          = score_to_result(score),
@@ -588,13 +619,99 @@ def run_incremental(days: int, dry_run: bool, app, db, Restaurant, Inspection, V
     run_import(from_date, today, dry_run, app, db, Restaurant, Inspection, Violation)
 
 
+def _fetch_purpose(insp_id: str) -> tuple[str, str | None]:
+    """Thread-safe: fetch one report, return (insp_id, purpose) or (insp_id, None)."""
+    url  = f'{REPORT_URL}?inspectionID={insp_id}&domainID={DOMAIN_ID}&userID=0'
+    html = _get(url)
+    if not html:
+        return insp_id, None
+    return insp_id, extract_purpose(html)
+
+
+def run_backfill_types(dry_run: bool, skip: int,
+                       app, db, Inspection):
+    """Re-derive inspection_type for every existing Phila inspection from the report HTML.
+
+    The original importer hard-coded 'Routine' for every row, so historical
+    Reinspections / Variance Reviews / etc. are misclassified. Walks every
+    Phila inspection with a source_id, fetches the report in parallel, and
+    patches any whose stored type differs from what the report says.
+    """
+    print('=== Philadelphia: Backfill inspection_type ===')
+
+    with app.app_context():
+        rows = (
+            db.session.query(Inspection.id, Inspection.source_id, Inspection.inspection_type)
+                      .filter(Inspection.region == REGION)
+                      .filter(Inspection.source_id.isnot(None))
+                      .order_by(Inspection.id)
+                      .all()
+        )
+        total = len(rows)
+        if skip:
+            print(f'  Skipping first {skip} inspections (resume mode).')
+            rows = rows[skip:]
+        print(f'  Backfilling type for {len(rows):,} of {total:,} Phila inspections'
+              f'{"  (dry run)" if dry_run else ""}...', flush=True)
+
+        FETCH_BATCH    = 500
+        total_checked  = 0
+        total_updated  = 0
+        total_skipped  = 0
+
+        for batch_start in range(0, len(rows), FETCH_BATCH):
+            batch = rows[batch_start: batch_start + FETCH_BATCH]
+            id_to_old = {r.source_id: (r.id, r.inspection_type) for r in batch}
+
+            results: dict[str, str | None] = {}
+            with ThreadPoolExecutor(max_workers=WORKERS) as pool:
+                futures = {pool.submit(_fetch_purpose, sid): sid for sid in id_to_old}
+                for future in as_completed(futures):
+                    sid, purpose = future.result()
+                    results[sid] = purpose
+
+            batch_updated = 0
+            for sid, (insp_id, old_type) in id_to_old.items():
+                new_type = results.get(sid)
+                if new_type is None:
+                    total_skipped += 1
+                    continue
+                total_checked += 1
+                if new_type == old_type:
+                    continue
+                if not dry_run:
+                    db.session.query(Inspection).filter_by(id=insp_id).update(
+                        {'inspection_type': new_type}, synchronize_session=False
+                    )
+                total_updated += 1
+                batch_updated += 1
+                # Sample a few transitions per batch to avoid log spam
+                if batch_updated <= 5:
+                    print(f'  insp_id={insp_id} | {old_type!r} → {new_type!r}')
+
+            if not dry_run:
+                db.session.commit()
+
+            done = skip + batch_start + len(batch)
+            print(f'  [{done}/{total}] checked, {total_updated} updated, '
+                  f'{total_skipped} skipped (no HTML)', flush=True)
+            print(f'  TIP: re-run with --skip={done} to resume from here.', flush=True)
+
+        print(f'\nBackfill {"(dry run) " if dry_run else ""}complete:')
+        print(f'  {total_checked:,} inspections checked')
+        print(f'  {total_updated:,} inspection types updated')
+        print(f'  {total_skipped:,} inspections skipped (report fetch failed)')
+
+
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 def main():
-    full_mode  = '--full'    in sys.argv
-    dry_run    = '--dry-run' in sys.argv
+    full_mode      = '--full'           in sys.argv
+    dry_run        = '--dry-run'        in sys.argv
+    backfill_types = '--backfill-types' in sys.argv
     days       = 7
     since      = None
+    skip       = 0
     chunk_days = CHUNK_DAYS
     for arg in sys.argv[1:]:
         if arg.startswith('--days='):
@@ -603,6 +720,8 @@ def main():
             since = date.fromisoformat(arg.split('=', 1)[1])
         elif arg.startswith('--chunk-days='):
             chunk_days = int(arg.split('=', 1)[1])
+        elif arg.startswith('--skip='):
+            skip = int(arg.split('=', 1)[1])
 
     from app import create_app
     from app.db import db
@@ -611,6 +730,10 @@ def main():
     from app.models.violation import Violation
 
     app = create_app()
+
+    if backfill_types:
+        run_backfill_types(dry_run, skip, app, db, Inspection)
+        return
 
     if full_mode:
         run_full_import(dry_run, app, db, Restaurant, Inspection, Violation,

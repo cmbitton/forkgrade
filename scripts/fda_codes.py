@@ -33,6 +33,16 @@ def item_severity(item_number: int) -> str:
         return 'major'
     return 'minor'
 
+
+def item_title(item_number: int) -> str | None:
+    """Short FDA form item title for item N (1-58). Returns None if unknown.
+
+    Reuses FL_ITEM_TITLES since Florida's item numbering matches the standard
+    FDA 3-A inspection form — the same numbering Tennessee, Rhode Island, etc.
+    use.
+    """
+    return FL_ITEM_TITLES.get(f'FL-{item_number:02d}')
+
 CODE_SEVERITY = {
     "2-101.11": "Pf", "2-102.11": "Pf", "2-102.12": "C",  "2-103.11": "Pf",
     "2-201.11": "P",  "2-201.12": "P",  "2-201.13": "P",
