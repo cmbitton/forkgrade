@@ -9,7 +9,11 @@ Usage:
     python3 scripts/import_ri.py --rescrape   # re-fetch HTML codes + inspector notes + COS
                                               # flags for all existing RI data; updates any
                                               # inspection whose score OR violation content changes
-    python3 scripts/import_ri.py --rescrape --dry-run  # preview without writing
+    python3 scripts/import_ri.py --rescrape --dry-run        # preview without writing
+    python3 scripts/import_ri.py --backfill-types            # patch inspection_type on existing
+                                                             # rows from the API (Routine,
+                                                             # Re-Inspection, Opening, etc.)
+    python3 scripts/import_ri.py --backfill-types --dry-run  # preview without writing
 
 Set GOOGLE_MAPS_KEY to enrich new restaurants with cuisine type via Google Places.
 """
@@ -256,6 +260,12 @@ def score_to_result(score):
     if score >= 60: return "Pass with Conditions"
     return "Fail"
 
+def extract_purpose(insp_data):
+    """Pull 'Inspection Purpose: X' out of the API row; default to Routine if missing."""
+    raw = insp_data.get("columns", {}).get("1", "") or ""
+    p = raw.replace("Inspection Purpose:", "").strip()
+    return p or "Routine"
+
 def parse_date(s):
     if not s: return None
     for fmt in ("%m-%d-%Y", "%Y-%m-%d"):
@@ -383,7 +393,7 @@ def import_inspections(restaurant_id, source_id, since_date=None):
         insp = Inspection(
             restaurant_id   = restaurant_id,
             inspection_date = insp_date,
-            inspection_type = "Routine",
+            inspection_type = extract_purpose(insp_data),
             score           = score,
             risk_score      = risk,
             grade           = None,
@@ -653,12 +663,105 @@ def full_sync_ri(skip=0):
         print(f"  {skipped} restaurants skipped (errors)")
 
 
+def backfill_types_ri(dry_run=False, skip=0):
+    """One-shot: re-derive inspection_type for every existing RI inspection from the API.
+
+    The original importer hard-coded "Routine" for every row, so historical data
+    misclassifies Re-Inspections, Openings, Complaint visits, etc. This walks
+    every RI restaurant once, builds a {date: purpose} map from the API, and
+    patches any inspection whose stored type differs.
+    """
+    from sqlalchemy.exc import OperationalError
+
+    app = create_app()
+    with app.app_context():
+        restaurants = (
+            Restaurant.query
+            .filter_by(region="rhode-island")
+            .filter(Restaurant.source_id.isnot(None))
+            .order_by(Restaurant.id)
+            .all()
+        )
+
+        total = len(restaurants)
+        if skip:
+            print(f"Skipping first {skip} restaurants (resume mode).")
+        print(f"Backfilling inspection_type for {total - skip} of {total} RI restaurants{'  (dry run)' if dry_run else ''}...")
+        sys.stdout.flush()
+
+        total_checked = 0
+        total_updated = 0
+        total_skipped = 0
+
+        for idx, restaurant in enumerate(restaurants):
+            if idx < skip:
+                continue
+
+            try:
+                api_data = fetch_json(INSPECTIONS_URL.format(encode_id(str(restaurant.source_id))))
+                if not api_data:
+                    total_skipped += 1
+                    time.sleep(0.3)
+                    continue
+
+                date_to_type = {}
+                for insp_data in api_data:
+                    raw_date  = insp_data.get("columns", {}).get("0", "")
+                    insp_date = parse_date(raw_date.replace("Inspection Date:", "").strip())
+                    if insp_date:
+                        date_to_type[insp_date] = extract_purpose(insp_data)
+
+                for insp in Inspection.query.filter_by(restaurant_id=restaurant.id).all():
+                    new_type = date_to_type.get(insp.inspection_date)
+                    if not new_type:
+                        continue
+                    total_checked += 1
+                    if insp.inspection_type == new_type:
+                        continue
+                    old = insp.inspection_type
+                    if not dry_run:
+                        insp.inspection_type = new_type
+                    total_updated += 1
+                    print(f"  {restaurant.name} | {insp.inspection_date} | {old!r} → {new_type!r}")
+
+                if not dry_run and (idx + 1) % 50 == 0:
+                    db.session.commit()
+
+            except OperationalError as exc:
+                print(f"\n  DB connection lost at idx={idx} ({restaurant.name}): {exc}")
+                try:
+                    db.session.rollback()
+                except Exception:
+                    pass
+                db.engine.dispose()
+                print(f"  Reconnected. Skipping restaurant and continuing.")
+                print(f"  TIP: re-run with --skip={idx} to retry from this point.")
+                total_skipped += 1
+                time.sleep(2)
+                continue
+
+            if (idx + 1) % 100 == 0:
+                print(f"  [{idx+1}/{total}] {total_updated} updated so far...")
+                sys.stdout.flush()
+
+            time.sleep(0.3)
+
+        if not dry_run:
+            db.session.commit()
+
+        print(f"\nBackfill {'(dry run) ' if dry_run else ''}complete:")
+        print(f"  {total_checked:,} inspections matched against API")
+        print(f"  {total_updated:,} inspection types updated")
+        print(f"  {total_skipped:,} restaurants skipped (no API data or errors)")
+
+
 def main():
-    days    = 5
-    skip    = 0
-    rescrape  = '--rescrape'  in sys.argv
-    full_sync = '--full-sync' in sys.argv
-    dry_run   = '--dry-run'   in sys.argv
+    days     = 5
+    skip     = 0
+    rescrape       = '--rescrape'        in sys.argv
+    full_sync      = '--full-sync'       in sys.argv
+    backfill_types = '--backfill-types'  in sys.argv
+    dry_run        = '--dry-run'         in sys.argv
     for arg in sys.argv[1:]:
         if arg.startswith('--days='):
             days = int(arg.split('=', 1)[1])
@@ -667,6 +770,10 @@ def main():
 
     if rescrape:
         rescrape_ri(dry_run=dry_run, skip=skip)
+        return
+
+    if backfill_types:
+        backfill_types_ri(dry_run=dry_run, skip=skip)
         return
 
     if full_sync:
