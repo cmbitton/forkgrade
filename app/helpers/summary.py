@@ -333,8 +333,9 @@ def _build_p1(restaurant, inspections, latest, fid: int) -> str:
 
     # Thin-record framing kicks in for sparse history. Frames the *record* as
     # thin, not the facility as new — a long-running business may simply have
-    # a short public history.
-    if total < 3:
+    # a short public history. Threshold lives in _THIN_RECORD_THRESHOLD so
+    # the cadence FAQ skip uses the same definition.
+    if total < _THIN_RECORD_THRESHOLD:
         intro = pick('thin_record', fid,
                      name=name, count=_n(total), plural=_plural(total))
     else:
@@ -450,13 +451,28 @@ def _build_conclusion(restaurant, latest, inspections, fid: int) -> str:
 
 # ── FAQ ──────────────────────────────────────────────────────────────────────
 
+# Inspection counts at or above this threshold get full statistical framing
+# (intro_inspection_count opener, cadence FAQ, etc.). Below it, the record
+# is "thin" — the prose acknowledges sparse history and the cadence FAQ is
+# omitted. Defined once so build_p1 and build_faq can never disagree about
+# whether a record is thick enough to extrapolate from.
+_THIN_RECORD_THRESHOLD = 3
+
+# Minimum window before the per-year cadence calc is meaningful, even when
+# inspection count clears _THIN_RECORD_THRESHOLD. 3 visits over 4 months
+# extrapolates to "9 per year" but the next visit could land 18 months later
+# just as easily. At 225k pages, "missing FAQ entry" is far better than
+# "confidently wrong number".
+_CADENCE_MIN_SPAN_DAYS = 547  # ~18 months
+
+
 def _avg_inspections_per_year(inspections) -> float | None:
-    if len(inspections) < 2:
+    if len(inspections) < _THIN_RECORD_THRESHOLD:
         return None
     earliest = inspections[-1].inspection_date
     latest = inspections[0].inspection_date
     span_days = (latest - earliest).days
-    if span_days < 30:
+    if span_days < _CADENCE_MIN_SPAN_DAYS:
         return None
     years = span_days / 365.25
     return len(inspections) / years if years > 0 else None
@@ -571,7 +587,15 @@ def _build_faq(restaurant, inspections, latest, fid: int) -> list[dict]:
     # from variable date spans, and dividing 12/freq to get "every N months"
     # breaks at the edges (12/year → "every 1 months", 24/year → "every 0
     # months"). Bucket the cadence directly off the integer count instead.
-    freq = _avg_inspections_per_year(inspections)
+    #
+    # Skip this entire FAQ for thin records — by definition, a record too
+    # sparse for prose framing ("only N inspections so far") is too sparse
+    # for rate calculations. _avg_inspections_per_year already enforces the
+    # count gate, but the explicit check here keeps the invariant readable
+    # at the call site so a future change to the calc can't accidentally
+    # produce a cadence FAQ on a thin-record page.
+    is_thin = len(inspections) < _THIN_RECORD_THRESHOLD
+    freq = None if is_thin else _avg_inspections_per_year(inspections)
     if freq is not None:
         per_year = max(1, round(freq))
         if per_year >= 12:
