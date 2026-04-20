@@ -137,9 +137,9 @@ PHRASE_BANK: dict[str, list[str]] = {
     # ── Closing sentences (final line of P3 or P4) ───────────────────────────
     "conclusion_positive": [
         "Overall, the inspection record reads well.",
-        "On balance, this is a reassuring file for diners.",
+        "The file should reassure diners considering a visit.",
         "The full picture is one of consistent compliance.",
-        "Pulling back, the record reflects steady performance.",
+        "The record reflects steady performance over time.",
         "Taken together, the history is a positive one.",
         "There isn't much in the file that would give a customer pause.",
     ],
@@ -147,17 +147,17 @@ PHRASE_BANK: dict[str, list[str]] = {
         "On the whole, the file is mixed but not concerning.",
         "The full record sits in fairly typical territory for a working restaurant.",
         "Taken together, the history looks like that of a busy facility working through the usual inspection cycle.",
-        "Pulling back, there's nothing alarming, though there's room to improve.",
-        "On balance, the record is unremarkable in either direction.",
+        "Nothing in the record is alarming, but there's room to improve.",
+        "The record is unremarkable in either direction.",
         "The inspection history reads as standard for a restaurant of this size.",
     ],
     "conclusion_caution": [
         "Diners may want to weigh the inspection history when deciding to visit.",
         "The pattern in the record is worth a careful look.",
-        "On balance, the file warrants more attention than the average restaurant.",
+        "This restaurant has more on its record than most do.",
         "Taken together, the history suggests a facility that has struggled with consistency.",
         "There are enough flags in the record to merit a second thought.",
-        "Pulling back, the inspection trail is one diners may want to review closely.",
+        "Diners may want to scan the inspection details before deciding to visit.",
     ],
 
     # ── Edge case: facility has fewer than 3 inspections ─────────────────────
