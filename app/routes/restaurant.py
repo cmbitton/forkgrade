@@ -6,6 +6,7 @@ from app.db import db, cache
 from app.models.restaurant import Restaurant
 from app.models.inspection import Inspection
 from app.utils import get_region_display, get_region_aliases
+from app.helpers.summary import build_summary
 
 
 def _cuisine_slug(label: str) -> str:
@@ -202,6 +203,8 @@ def render_restaurant(restaurant):
 
     nearby = get_nearby_restaurants(restaurant)
 
+    summary_data = build_summary(restaurant.id)
+
     # Build JSON-LD
     local_biz = {
         "@type": "Restaurant",
@@ -271,6 +274,22 @@ def render_restaurant(restaurant):
             "latitude": restaurant.latitude,
             "longitude": restaurant.longitude
         }
+
+    if summary_data and summary_data.get('faq'):
+        json_ld['@graph'].append({
+            "@type": "FAQPage",
+            "mainEntity": [
+                {
+                    "@type": "Question",
+                    "name": qa['question'],
+                    "acceptedAnswer": {
+                        "@type": "Answer",
+                        "text": qa['answer']
+                    }
+                }
+                for qa in summary_data['faq']
+            ]
+        })
 
     site_name = current_app.config['SITE_NAME']
     base_url = current_app.config['BASE_URL']
@@ -368,6 +387,7 @@ def render_restaurant(restaurant):
         score_tier=score_tier,
         score_display_tier=score_display_tier,
         violation_scheme=violation_scheme,
+        summary_data=summary_data,
     )
     cache.set(cache_key, response, timeout=300)
     return response

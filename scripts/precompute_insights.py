@@ -498,6 +498,17 @@ def compute_region(region: str) -> dict | None:
         [c for c in city_data if c['avg_score'] is not None],
         key=lambda x: x['avg_score'], reverse=True
     )[:10]
+    # Full per-city dict keyed by slug. summary.py looks this up so every
+    # facility gets a real city comparison instead of falling back to the
+    # region-wide average just because their city wasn't in the top/bottom 10.
+    city_stats = {
+        c['city_slug']: {
+            'avg_score': c['avg_score'],
+            'pct_high':  c['pct_high'],
+            'total':     c['total'],
+        }
+        for c in city_data if c.get('city_slug')
+    }
     print(f'  [{region}] neighborhood: {(_t()-t0)*1000:.0f}ms')
 
     t0 = _t()
@@ -548,6 +559,7 @@ def compute_region(region: str) -> dict | None:
         'monthly_trends':     monthly_trends,
         'worst_cities':       worst_cities,
         'best_cities':        best_cities,
+        'city_stats':         city_stats,
         'neighborhood_by_zip': neighborhood_by_zip,
         'cuisine_risk':       cuisine_risk,
     }

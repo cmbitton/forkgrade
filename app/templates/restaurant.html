@@ -54,10 +54,10 @@
         {{ render_score_ring(latest_score, score_tier, score_display_tier, grade=current_grade, region=restaurant.region) }}
     </div>
 
-    <!-- AI SUMMARY -->
+    <!-- SUMMARY -->
     <div class="summary-block summary-block--ai">
-        {% if restaurant.ai_summary %}
-            {% for para in restaurant.ai_summary.split('\n\n') %}
+        {% if summary_data and summary_data.paragraphs %}
+            {% for para in summary_data.paragraphs %}
                 <p>{{ para }}</p>
             {% endfor %}
         {% else %}
@@ -115,6 +115,21 @@
 
 {#- AD #2: in-content, between violations and nearby restaurants (lazy) -#}
     {#- {{ render_ad('2877225210', lazy=true) }} -#}
+
+    <!-- FAQ -->
+    {% if summary_data and summary_data.faq %}
+    <section class="faq-section" aria-labelledby="faq-heading">
+        <h2 id="faq-heading" class="section-title">Frequently Asked Questions</h2>
+        <div class="faq-list">
+            {% for qa in summary_data.faq %}
+            <details class="faq-item"{% if loop.first %} open{% endif %}>
+                <summary class="faq-question">{{ qa.question }}</summary>
+                <div class="faq-answer"><p>{{ qa.answer }}</p></div>
+            </details>
+            {% endfor %}
+        </div>
+    </section>
+    {% endif %}
 
 <!-- NEARBY RESTAURANTS -->
     {{ render_nearby(nearby, restaurant.region) }}
