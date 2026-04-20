@@ -80,6 +80,53 @@ _CONNECTOR_RE = re.compile(
     r'when|where|during|after|before|except|including|under|over)\s'
 )
 
+# Words that should never be the LAST word of a label — they require a
+# complement that the truncation chopped off. Renders prose like
+# "X comes up most often" → "Y of comes up most often", which reads broken.
+# Sentence-end and comma-clause splits don't filter for these on their own,
+# so we apply this gate after every truncation path.
+#
+# Three groups:
+#   - prepositions and conjunctions (the bulk of the failure cases)
+#   - determiners (a/an/the can't end a phrase)
+#   - adjectives that essentially never stand alone in inspection text
+#     ("conditions conducive [to X]" → cutting at "to" leaves a dangling
+#     "conducive" — not technically a connector, but reads broken).
+_TRAILING_BAD = frozenset({
+    'to', 'of', 'from', 'with', 'for', 'in', 'on', 'at', 'by',
+    'that', 'which', 'or', 'and',
+    'a', 'an', 'the',
+    'conducive', 'attributable', 'prone',
+})
+
+
+def _strip_trailing_bad(s: str) -> str | None:
+    """Back up one word at a time while the last word is a dangling
+    preposition or conjunction. Returns None if backing up consumed too
+    much of the phrase to still be useful — caller will drop the paragraph
+    rather than ship a stub like 'food not'.
+
+    A few iterations is enough; descriptions don't stack 5 prepositions in
+    a row. Cap at 4 to avoid pathological loops on weird input.
+    """
+    for _ in range(4):
+        s = s.rstrip(',;: ').strip()
+        words = s.split()
+        if not words:
+            return None
+        if words[-1].lower() not in _TRAILING_BAD:
+            break
+        s = ' '.join(words[:-1])
+    else:
+        return None
+    s = s.rstrip(',;: ').strip()
+    if len(s) < 20:
+        return None
+    # Final safety net: if we still end on a bad word after 4 passes, drop.
+    if s.split()[-1].lower() in _TRAILING_BAD:
+        return None
+    return s
+
 
 def _short_label(desc: str | None) -> str | None:
     """Trim a violation description to a tight inline phrase.
@@ -92,8 +139,9 @@ def _short_label(desc: str | None) -> str | None:
          [30, 70] and cut there. Reads as a clipped phrase, not a chopped
          sentence with "..." trailing — that ellipsis was the "bot wrote
          this" signal that tripped on Tacos Azteca.
-      4. If nothing produces a clean label, return None. Caller omits P3
-         entirely rather than ship a label that reads as truncated.
+      4. EVERY candidate runs through _strip_trailing_bad to prune dangling
+         prepositions/conjunctions. If nothing survives that gate, return
+         None — caller omits P3 entirely rather than ship broken prose.
       5. Polish acronym casing on the way out.
     """
     if not desc:
@@ -101,11 +149,14 @@ def _short_label(desc: str | None) -> str | None:
     s = re.split(r'[.;:]', desc, 1)[0].strip()
     s = s.rstrip('.,;:').strip()
     if len(s) <= 70:
-        return _polish(s) if s else None
+        cleaned = _strip_trailing_bad(s) if s else None
+        return _polish(cleaned) if cleaned else None
 
     first_clause = s.split(',', 1)[0].strip()
     if 20 <= len(first_clause) <= 70:
-        return _polish(first_clause)
+        cleaned = _strip_trailing_bad(first_clause)
+        if cleaned:
+            return _polish(cleaned)
 
     # Find the latest connector whose prefix lands in the readable range.
     # Iterating finditer with the last match preserves the most meaning.
@@ -114,7 +165,9 @@ def _short_label(desc: str | None) -> str | None:
         if 30 <= m.start() <= 70:
             best_cut = m.start()
     if best_cut:
-        return _polish(s[:best_cut].rstrip(',;: '))
+        cleaned = _strip_trailing_bad(s[:best_cut])
+        if cleaned:
+            return _polish(cleaned)
 
     # Nothing clean to ship. Caller will skip P3.
     return None
