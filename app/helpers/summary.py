@@ -72,18 +72,23 @@ _DEGREE_RE = re.compile(r'°([fc])\b', re.IGNORECASE)
 #
 # Prefixes (left-anchored):
 #   "17C - ", "15C - "                      Georgia FDA-code prefix
+#   "6-1A - ", "2-3B - "                    Georgia compound FDA-code prefix
 #   "Basic - ", "Intermediate - ",
 #   "High Priority - "                      Florida priority-class prefix
-#   "(a)word", "(b)word", "(c)word"         Texas Houston section-code prefix
+#   "(a) word", "(b)word"                   Boston FDA section-code prefix
+#                                           (with or without trailing space)
 #
 # Suffix markers (right-anchored):
 #   " (c)", " (p)", " (pf)", " (a)",
 #   " (b)", " (pa)"                         Boston / FDA code-class tag
+#
+# The substitution is run in a loop (see _polish) so compound prefixes
+# like "6-1A - proper cold holding..." strip both layers, not just one.
 _PREFIX_RE = re.compile(
     r'^\s*(?:'
     r'\d{1,3}[A-Za-z]?\s*-\s*'            # "17C - ", "5 - "
     r'|(?:basic|intermediate|high\s+priority)\s*-+\s*'
-    r'|\([a-z]\)(?=[a-z])'                # "(a)word" with no space
+    r'|\([a-z]\)\s*'                      # "(a)word" or "(a) word"
     r')',
     re.IGNORECASE,
 )
@@ -100,8 +105,16 @@ def _polish(s: str) -> str:
     resulting first letter (not the code prefix) is what gets sentence-cased.
     Then re-uppercase known acronyms (`TCS`, `PHF`, etc.) that live inside
     the label.
+
+    Prefix stripping runs in a loop because Georgia uses compound codes
+    ("6-1A - proper cold holding...") where one pass would leave "1a - ..."
+    behind. Cap at 3 iterations to avoid pathological cases.
     """
-    s = _PREFIX_RE.sub('', s).strip()
+    for _ in range(3):
+        stripped = _PREFIX_RE.sub('', s).strip()
+        if stripped == s:
+            break
+        s = stripped
     s = _SUFFIX_CODE_RE.sub('', s).strip()
     # Collapse any run of repeated dashes or whitespace introduced by the
     # strips (e.g. "Intermediate - - From initial inspection" → "From
@@ -144,6 +157,12 @@ _TRAILING_BAD = frozenset({
     'that', 'which', 'or', 'and',
     'a', 'an', 'the',
     'conducive', 'attributable', 'prone',
+    # Adverbs and modals that need a complement to make sense. Left dangling
+    # by connector-based truncation in Texas inspector narratives — e.g.
+    # "food that can be readily [removed for cleaning]" cuts at "for" and
+    # lands on "readily" without it.
+    'readily', 'easily', 'properly', 'generally',
+    'can', 'be', 'is', 'are', 'was', 'were', 'been',
 })
 
 # Words that should never be the FIRST word of a label — a real violation
@@ -501,7 +520,8 @@ def _build_p3(restaurant, inspections, fid: int) -> str | None:
     total_violations = sum(_violation_count(i) for i in inspections)
     if total_violations == 0:
         return pick('clean_record', fid,
-                    name=restaurant.display_name, count=_n(len(inspections)))
+                    name=restaurant.display_name,
+                    count_v=_inspections_phrase(len(inspections)))
 
     top = _top_violation(inspections)
     if top is None:

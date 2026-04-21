@@ -249,6 +249,16 @@ _STATE_ZIP_RE = re.compile(r'\b([A-Z]{2})\s+(\d{5})(?:-\d{4})?\s*$', re.IGNORECA
 # address block has no comma separator between street and city.
 _TRAIL_CITY_RE = re.compile(r'\s+san\s+antonio\s*$', re.IGNORECASE)
 
+# The SAMHD detail-page address block ends with a "« Back" link back to
+# search results. Stripping tags leaves the literal text "« Back" (or
+# "&laquo; Back", "‹ Back", etc.) glued to the ZIP. Without this scrub,
+# _STATE_ZIP_RE — which is end-anchored — fails to match and parse_address
+# dumps the entire raw string into the street field.
+_NAV_TAIL_RE = re.compile(
+    r'\s*[«‹\u00ab\u2039]+\s*back\s*$',
+    re.IGNORECASE,
+)
+
 
 def parse_address(raw: str) -> tuple:
     """
@@ -264,6 +274,9 @@ def parse_address(raw: str) -> tuple:
     s = html_mod.unescape(s)
     s = re.sub(r'\s+', ' ', s).strip()
     s = s.replace(' ,', ',')
+    # Drop the "« Back" navigation link that SAMHD's detail page glues to
+    # the ZIP. Must happen before the state/zip regex runs.
+    s = _NAV_TAIL_RE.sub('', s).strip()
     if not s:
         return None, 'San Antonio', STATE, None
 

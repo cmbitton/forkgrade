@@ -78,7 +78,7 @@ PHRASE_BANK: dict[str, list[str]] = {
     # in both the averaged case and the degenerate 2-visit case.
     "trend_improving": [
         "Violation counts have been trending down, averaging around {curr_v} across recent inspections versus roughly {prev_v} before.",
-        "Things have been moving in the right direction, with the rolling count dropping from around {prev} to closer to {curr} violations per visit.",
+        "Things have been moving in the right direction, with the rolling count dropping from around {prev_v} to closer to {curr_v} per visit.",
         "Recent inspections have found fewer violations than earlier ones, averaging around {curr_v} lately and about {prev_v} before that.",
         "The picture has improved over the last few visits: recent inspections have averaged around {curr_v}, down from roughly {prev_v} earlier in the record.",
         "The trend has been favorable: violation counts have eased from around {prev_v} to closer to {curr_v} per visit over the last few inspections.",
@@ -87,7 +87,7 @@ PHRASE_BANK: dict[str, list[str]] = {
     "trend_worsening": [
         "Violation counts have ticked up lately, averaging around {curr_v} per visit versus roughly {prev_v} earlier in the record.",
         "The trend has not been favorable: recent inspections average around {curr_v} each, up from closer to {prev_v} before.",
-        "Things have been moving the wrong way, with the rolling count rising from around {prev} to closer to {curr} violations per visit.",
+        "Things have been moving the wrong way, with the rolling count rising from around {prev_v} to closer to {curr_v} per visit.",
         "Recent inspections have turned up more issues than earlier ones, averaging around {curr_v} lately compared to roughly {prev_v} before.",
         "The picture has gotten worse over the last few visits, with the average climbing from around {prev_v} to closer to {curr_v}.",
         "Recent visits have flagged more than earlier ones: around {curr_v} per visit lately, up from roughly {prev_v} before.",
@@ -97,7 +97,7 @@ PHRASE_BANK: dict[str, list[str]] = {
         "Recent inspections have turned up roughly the same number of issues each time, hovering near {prev_v} per visit.",
         "There hasn't been much movement either way: counts have stayed near {prev_v} per visit across recent inspections.",
         "Inspection results have stayed in a similar range over the last few visits, averaging around {prev_v} each.",
-        "Recent visits have produced comparable findings, with counts hovering near {prev} violations per visit.",
+        "Recent visits have produced comparable findings, with counts hovering near {prev_v} per visit.",
         "Performance has remained roughly level over recent inspections, averaging near {prev_v} each time.",
     ],
 
@@ -198,7 +198,7 @@ PHRASE_BANK: dict[str, list[str]] = {
     # ── Edge case: zero violations across full history ───────────────────────
     "clean_record": [
         "No violations have appeared in any of the inspections on file.",
-        "Across {count} inspections, no violations have been recorded.",
+        "Across {count_v}, no violations have been recorded.",
         "{name} has a clean inspection sheet: zero violations across the full record.",
         "Inspectors haven't written up any violations across the available history.",
         "The record is empty on the violation front, which is unusual.",
