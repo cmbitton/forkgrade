@@ -332,9 +332,12 @@ def _trend(inspections: list) -> dict | None:
         prev = counts[1]
 
     delta = curr - prev
-    # Threshold of 1 full violation absorbs single-inspection noise. Anything
-    # smaller is "stable"; larger swings get a directional call.
-    if abs(delta) < 1.0:
+    # Threshold of 2 full violations: a 1-violation swing is within normal
+    # inspection variance — one inspector flags something a second doesn't,
+    # or a borderline item gets written up. At higher counts especially
+    # (e.g. 8→7) calling that "improving" overstates what changed. Caller
+    # uses the "stable" phrasing below the threshold, directional above.
+    if abs(delta) < 2.0:
         direction = 'stable'
         baseline = int(round((curr + prev) / 2))
         return {'direction': direction, 'curr_disp': baseline, 'prev_disp': baseline}
@@ -504,9 +507,14 @@ def _build_p3(restaurant, inspections, fid: int) -> str | None:
     if top is None:
         return None
     _code, label, occurrences = top
+    # Wrap the category in curly quotes so it reads as a callout in prose
+    # and survives intact through the FAQ JSON-LD (where HTML styling
+    # would render as text). Mid-sentence form stays lower-cased; the
+    # capitalized variant keeps its leading capital so templates that open
+    # with {category_cap} still scan as sentence starts.
     return pick('violation_pattern_opener', fid,
-                category=_lower_first(label),
-                category_cap=_cap_first(label),
+                category=f'\u201c{_lower_first(label)}\u201d',
+                category_cap=f'\u201c{_cap_first(label)}\u201d',
                 times=_times_phrase(occurrences))
 
 
@@ -609,7 +617,8 @@ def _build_faq(restaurant, inspections, latest, fid: int) -> list[dict]:
         _code, label, occurrences = top
         faq.append({
             'question': f'What is the most common violation at {name}?',
-            'answer': (f'Across the inspection record, {_lower_first(label)} '
+            'answer': (f'Across the inspection record, '
+                       f'\u201c{_lower_first(label)}\u201d '
                        f'has been cited {_times_phrase(occurrences)}, more '
                        f'than any other issue at {name}.'),
         })
