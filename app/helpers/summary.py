@@ -20,6 +20,7 @@ from app.models.inspection import Inspection
 from app.models.region_stats import RegionStats
 from app.utils import get_region_display, get_region_state_abbr
 from app.helpers.phrase_bank import pick
+from app.helpers.inspection_collapse import collapse_inspections
 
 
 # ── Number / text utilities ──────────────────────────────────────────────────
@@ -64,9 +65,55 @@ _ACRONYMS = {'tcs', 'fpc', 'rop', 'frsa', 'haccp', 'fda', 'doh', 'dohmh',
 _ACRONYM_RE = re.compile(r'\b(' + '|'.join(_ACRONYMS) + r')\b', re.IGNORECASE)
 _DEGREE_RE = re.compile(r'°([fc])\b', re.IGNORECASE)
 
+# Source-data prefixes and code markers that leak into violation descriptions
+# across regions. Stripping these turns "17C - physical facilities installed,
+# maintained, and clean" into "physical facilities installed, maintained, and
+# clean" and "Basic - Food stored on floor" into "food stored on floor".
+#
+# Prefixes (left-anchored):
+#   "17C - ", "15C - "                      Georgia FDA-code prefix
+#   "Basic - ", "Intermediate - ",
+#   "High Priority - "                      Florida priority-class prefix
+#   "(a)word", "(b)word", "(c)word"         Texas Houston section-code prefix
+#
+# Suffix markers (right-anchored):
+#   " (c)", " (p)", " (pf)", " (a)",
+#   " (b)", " (pa)"                         Boston / FDA code-class tag
+_PREFIX_RE = re.compile(
+    r'^\s*(?:'
+    r'\d{1,3}[A-Za-z]?\s*-\s*'            # "17C - ", "5 - "
+    r'|(?:basic|intermediate|high\s+priority)\s*-+\s*'
+    r'|\([a-z]\)(?=[a-z])'                # "(a)word" with no space
+    r')',
+    re.IGNORECASE,
+)
+_SUFFIX_CODE_RE = re.compile(
+    r'\s*\(\s*(?:p|pf|pa|a|b|c|p[fs]?)\s*\)\s*$',
+    re.IGNORECASE,
+)
+
 
 def _polish(s: str) -> str:
-    """Restore casing on acronyms and degree symbols that source data lowercased."""
+    """Normalize label casing and strip source-data code markers.
+
+    Order matters: strip prefixes/suffixes before case normalization so the
+    resulting first letter (not the code prefix) is what gets sentence-cased.
+    Then re-uppercase known acronyms (`TCS`, `PHF`, etc.) that live inside
+    the label.
+    """
+    s = _PREFIX_RE.sub('', s).strip()
+    s = _SUFFIX_CODE_RE.sub('', s).strip()
+    # Collapse any run of repeated dashes or whitespace introduced by the
+    # strips (e.g. "Intermediate - - From initial inspection" → "From
+    # initial inspection") and trim stray punctuation at the edges.
+    s = re.sub(r'\s*-\s*-\s*', ' - ', s)
+    s = re.sub(r'\s+', ' ', s).strip(' -,;:')
+    # Normalize to sentence case: lowercase everything except the first
+    # character. Fixes mid-phrase title case from Maricopa/Texas sources
+    # ("preventing Contamination from Hands" → "preventing contamination
+    # from hands"). Acronyms get re-uppercased below.
+    if s:
+        s = s[0] + s[1:].lower()
     s = _ACRONYM_RE.sub(lambda m: m.group(0).upper(), s)
     s = _DEGREE_RE.sub(lambda m: '°' + m.group(1).upper(), s)
     return s
@@ -97,6 +144,17 @@ _TRAILING_BAD = frozenset({
     'that', 'which', 'or', 'and',
     'a', 'an', 'the',
     'conducive', 'attributable', 'prone',
+})
+
+# Words that should never be the FIRST word of a label — a real violation
+# description doesn't start with a preposition or conjunction. These only
+# appear as leading words when an earlier prefix-strip removed the real
+# subject (e.g. "Intermediate - - From initial inspection" → "From initial
+# inspection" after stripping). Rejecting these keeps garbage descriptions
+# out of the "most common violation" slot.
+_LEADING_BAD = frozenset({
+    'from', 'to', 'of', 'with', 'for', 'in', 'on', 'at', 'by',
+    'that', 'which', 'or', 'and', 'but',
 })
 
 
@@ -148,15 +206,32 @@ def _short_label(desc: str | None) -> str | None:
         return None
     s = re.split(r'[.;:]', desc, 1)[0].strip()
     s = s.rstrip('.,;:').strip()
+
+    def _finalize(text: str | None) -> str | None:
+        if not text:
+            return None
+        polished = _polish(text)
+        if not polished:
+            return None
+        # Reject labels that start with a preposition or conjunction — the
+        # real subject was stripped away by prefix cleanup and what's left
+        # isn't a meaningful category name ("from initial inspection",
+        # "for proper storage"). Caller skips P3 rather than ship garbage.
+        first = polished.split(None, 1)[0].lower()
+        if first in _LEADING_BAD:
+            return None
+        return polished
+
     if len(s) <= 70:
         cleaned = _strip_trailing_bad(s) if s else None
-        return _polish(cleaned) if cleaned else None
+        return _finalize(cleaned)
 
     first_clause = s.split(',', 1)[0].strip()
     if 20 <= len(first_clause) <= 70:
         cleaned = _strip_trailing_bad(first_clause)
-        if cleaned:
-            return _polish(cleaned)
+        result = _finalize(cleaned)
+        if result:
+            return result
 
     # Find the latest connector whose prefix lands in the readable range.
     # Iterating finditer with the last match preserves the most meaning.
@@ -166,8 +241,9 @@ def _short_label(desc: str | None) -> str | None:
             best_cut = m.start()
     if best_cut:
         cleaned = _strip_trailing_bad(s[:best_cut])
-        if cleaned:
-            return _polish(cleaned)
+        result = _finalize(cleaned)
+        if result:
+            return result
 
     # Nothing clean to ship. Caller will skip P3.
     return None
@@ -194,6 +270,28 @@ def _lower_first(s: str) -> str:
 
 def _cap_first(s: str) -> str:
     return s[:1].upper() + s[1:] if s else s
+
+
+def _possessive(name: str) -> str:
+    """English possessive for a facility name.
+
+    Rules, in priority order:
+      - Name already ends in "'s" (e.g. "Johnny's", "Wendy's") — return as-is.
+        These are named after a possessor, and "Johnny's food" / "Johnny's
+        inspection record" is how English speakers frame them.
+      - Name ends in plural "s" (e.g. "Erik's Fit Meals") — add apostrophe.
+      - Otherwise — add "'s".
+
+    Matters for FAQ questions and P4 templates that frame the facility as
+    a possessor; the raw "{name}'s" produces "Johnny's's" / "Meals's".
+    """
+    if not name:
+        return name
+    if name.endswith(("'s", "'S", "\u2019s", "\u2019S")):
+        return name
+    if name[-1] in ('s', 'S'):
+        return name + "'"
+    return name + "'s"
 
 
 # ── Aggregation helpers ──────────────────────────────────────────────────────
@@ -249,9 +347,19 @@ def _trend(inspections: list) -> dict | None:
 def _top_violation(inspections: list) -> tuple[str, str, int] | None:
     """Find the most common violation across the full history.
 
-    Group by violation_code (consistent within a facility's region). Return
-    (code, short_label, occurrences) for the top code, or None if there are
-    no violations or none of them have a usable description.
+    Group by violation_code (consistent within a facility's region). Walk
+    down the ranked list of codes (by frequency) and return the first one
+    whose description survives `_short_label` cleanup. Returns None if:
+      - there are no violations at all
+      - every code's description is too garbled to produce a label
+      - no code has at least 2 citations (a one-off isn't a pattern and
+        reads broken — "has been cited one time, more than any other
+        issue")
+
+    Why the walk-down: some source feeds (Florida especially) leave
+    placeholder descriptions like "Intermediate - - From initial inspection"
+    on their top code. Rather than skip P3 entirely, fall through to the
+    next-most-common code that has a real description.
     """
     code_counts: Counter = Counter()
     code_descs: dict[str, str] = {}
@@ -267,11 +375,13 @@ def _top_violation(inspections: list) -> tuple[str, str, int] | None:
                 code_descs[code] = v.description
     if not code_counts:
         return None
-    code, occurrences = code_counts.most_common(1)[0]
-    label = _short_label(code_descs.get(code))
-    if not label:
-        return None
-    return code, label, occurrences
+    for code, occurrences in code_counts.most_common():
+        if occurrences < 2:
+            return None  # ranked list; nothing below will clear the threshold
+        label = _short_label(code_descs.get(code))
+        if label:
+            return code, label, occurrences
+    return None
 
 
 def _city_avg_score(region: str, city: str | None) -> float | None:
@@ -428,6 +538,7 @@ def _build_p4(restaurant, latest, fid: int) -> str | None:
 
     return pick(slot, fid,
                 name=restaurant.display_name,
+                name_poss=_possessive(restaurant.display_name),
                 score=str(score),
                 city=compare_unit,
                 city_avg=f'{avg:.0f}')
@@ -539,24 +650,27 @@ def _build_faq(restaurant, inspections, latest, fid: int) -> list[dict]:
         if trend is not None:
             curr_disp = trend['curr_disp']
             prev_disp = trend['prev_disp']
+            # Framing matches the P2 prose: the numbers are rolling averages
+            # over 2–3 visits, so the answer talks about the average rather
+            # than claiming "the latest visit found X".
             if trend['direction'] == 'improving':
-                ans = (f'Yes. Recent inspections at {name} have turned up '
-                       f'fewer violations than earlier ones, with the latest '
-                       f'finding around {_n(curr_disp)} '
-                       f'violation{_plural(curr_disp)} compared to about '
-                       f'{_n(prev_disp)} previously.')
+                ans = (f'Yes. Recent inspections at {name} have averaged '
+                       f'around {_n(curr_disp)} '
+                       f'violation{_plural(curr_disp)} per visit, down from '
+                       f'roughly {_n(prev_disp)} earlier in the record.')
             elif trend['direction'] == 'worsening':
-                ans = (f'No. Recent inspections at {name} have flagged more '
-                       f'violations than earlier ones, ticking from about '
-                       f'{_n(prev_disp)} per visit to around '
-                       f'{_n(curr_disp)} more recently.')
+                ans = (f'No. Recent inspections at {name} have averaged '
+                       f'around {_n(curr_disp)} '
+                       f'violation{_plural(curr_disp)} per visit, up from '
+                       f'roughly {_n(prev_disp)} earlier in the record.')
             else:
-                ans = (f'Results have been roughly steady. Recent '
-                       f'inspections at {name} have produced about the same '
-                       f'number of violations as earlier ones, holding '
-                       f'around {_n(curr_disp)} per visit.')
+                ans = (f'Results have been roughly steady. Inspections at '
+                       f'{name} have averaged around {_n(curr_disp)} '
+                       f'violation{_plural(curr_disp)} per visit across '
+                       f'the recent record.')
             faq.append({
-                'question': (f"Has {name}'s inspection record improved over time?"),
+                'question': (f'Has {_possessive(name)} inspection record '
+                             f'improved over time?'),
                 'answer': ans,
             })
 
@@ -595,7 +709,12 @@ def _build_faq(restaurant, inspections, latest, fid: int) -> list[dict]:
     # at the call site so a future change to the calc can't accidentally
     # produce a cadence FAQ on a thin-record page.
     is_thin = len(inspections) < _THIN_RECORD_THRESHOLD
-    freq = None if is_thin else _avg_inspections_per_year(inspections)
+    # Skip the present-tense cadence answer when the latest inspection is
+    # more than 2 years old. The stale_record notice in P1 has already told
+    # the reader the file is out of date; "is inspected around 3 times per
+    # year" would directly contradict that. 2y = 730d matches the P1 gate.
+    is_stale = (date.today() - latest.inspection_date).days > 730
+    freq = None if (is_thin or is_stale) else _avg_inspections_per_year(inspections)
     if freq is not None:
         per_year = max(1, round(freq))
         if per_year >= 12:
@@ -624,7 +743,7 @@ def build_summary(facility_id: int) -> dict | None:
     if restaurant is None:
         return None
 
-    inspections = (
+    inspections_raw = (
         Inspection.query
         .options(selectinload(Inspection.violations))
         .filter_by(restaurant_id=facility_id)
@@ -632,9 +751,13 @@ def build_summary(facility_id: int) -> dict | None:
         .order_by(Inspection.inspection_date.desc())
         .all()
     )
-    if not inspections:
+    if not inspections_raw:
         return None
 
+    # Collapse same-date rows and Boston Fail+closeout pairs. The detail
+    # page uses the same helper (see restaurant.render_restaurant) so the
+    # visible inspection list and the summary math describe the same events.
+    inspections = collapse_inspections(inspections_raw)
     latest = inspections[0]
     fid = facility_id
 

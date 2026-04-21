@@ -69,30 +69,36 @@ PHRASE_BANK: dict[str, list[str]] = {
     #   {curr_v}/{prev_v} = "five violations" / "one violation" / "zero violations"
     #   {curr}/{prev}     = bare numerals: "five" / "one" / "zero"
     # Variants pick whichever fits cleanly so phrasing reads naturally at small
-    # counts ("down from one violation" not "down from one violations").
+    # counts ("down from around one violation" not "down from around one violations").
+    #
+    # IMPORTANT: these numbers are rolling averages over 2–3 visits (see
+    # summary._trend). Templates MUST NOT frame them as a single visit's
+    # count — readers scan the inspection list and notice the mismatch.
+    # "Around X" / "roughly Y per visit" / "averaging" phrasing is honest
+    # in both the averaged case and the degenerate 2-visit case.
     "trend_improving": [
-        "The latest visit found {curr_v}, down from {prev_v} the time before.",
-        "Things are looking better: the most recent inspection turned up {curr_v}, compared to {prev_v} previously.",
-        "Compared to the prior visit, the count dropped from {prev_v} to {curr}.",
-        "Recent inspections show fewer violations than earlier ones, with the latest at {curr} versus {prev} before.",
-        "The trend has been moving in the right direction: {prev_v} last time, {curr} this time.",
-        "The most recent inspection cleaned up several issues, finishing with {curr_v} after {prev} on the prior visit.",
+        "Violation counts have been trending down, averaging around {curr_v} across recent inspections versus roughly {prev_v} before.",
+        "Things have been moving in the right direction, with the rolling count dropping from around {prev} to closer to {curr} violations per visit.",
+        "Recent inspections have found fewer violations than earlier ones, averaging around {curr_v} lately and about {prev_v} before that.",
+        "The picture has improved over the last few visits: recent inspections have averaged around {curr_v}, down from roughly {prev_v} earlier in the record.",
+        "The trend has been favorable: violation counts have eased from around {prev_v} to closer to {curr_v} per visit over the last few inspections.",
+        "Things are looking better lately, with recent visits averaging around {curr_v} compared to roughly {prev_v} earlier on.",
     ],
     "trend_worsening": [
-        "The last inspection found {curr_v}, up from {prev} the time before.",
-        "Things have moved in the wrong direction: violation counts went from {prev} to {curr}.",
-        "Compared to the prior visit, inspectors found more to write up: {curr_v} versus {prev} before.",
-        "The most recent inspection turned up {curr_v}, more than the {prev} found previously.",
-        "Recent visits have flagged additional issues, ticking from {prev_v} up to {curr}.",
-        "The trend has not been favorable, with the count rising from {prev} to {curr} between inspections.",
+        "Violation counts have ticked up lately, averaging around {curr_v} per visit versus roughly {prev_v} earlier in the record.",
+        "The trend has not been favorable: recent inspections average around {curr_v} each, up from closer to {prev_v} before.",
+        "Things have been moving the wrong way, with the rolling count rising from around {prev} to closer to {curr} violations per visit.",
+        "Recent inspections have turned up more issues than earlier ones, averaging around {curr_v} lately compared to roughly {prev_v} before.",
+        "The picture has gotten worse over the last few visits, with the average climbing from around {prev_v} to closer to {curr_v}.",
+        "Recent visits have flagged more than earlier ones: around {curr_v} per visit lately, up from roughly {prev_v} before.",
     ],
     "trend_stable": [
-        "Violation counts have held steady across recent visits, with around {prev_v} found each time.",
-        "Each of the recent inspections has turned up roughly the same number of issues.",
-        "There hasn't been much movement either way: results have stayed near {prev_v} per visit.",
-        "Inspection results have stayed in a similar range over the last few visits.",
-        "Recent visits have produced comparable findings, with violation counts hovering near {prev}.",
-        "Performance has remained roughly level inspection to inspection, near {prev_v} each time.",
+        "Violation counts have held steady across recent visits, averaging around {prev_v} each.",
+        "Recent inspections have turned up roughly the same number of issues each time, hovering near {prev_v} per visit.",
+        "There hasn't been much movement either way: counts have stayed near {prev_v} per visit across recent inspections.",
+        "Inspection results have stayed in a similar range over the last few visits, averaging around {prev_v} each.",
+        "Recent visits have produced comparable findings, with counts hovering near {prev} violations per visit.",
+        "Performance has remained roughly level over recent inspections, averaging near {prev_v} each time.",
     ],
 
     # ── P3 openers: most common violation pattern ────────────────────────────
@@ -109,8 +115,11 @@ PHRASE_BANK: dict[str, list[str]] = {
     ],
 
     # ── P4 city comparison sentences ─────────────────────────────────────────
+    # {name_poss} is the English possessive of the name; summary.py
+    # pre-computes it so trailing-s names read as "Erik's Fit Meals'"
+    # rather than "Erik's Fit Meals's".
     "comparison_better_than_city": [
-        "{name}'s latest score of {score} sits above the {city} average of {city_avg}.",
+        "{name_poss} latest score of {score} sits above the {city} average of {city_avg}.",
         "That puts the facility ahead of the local pack: the average {city} restaurant scores {city_avg}.",
         "Restaurants in {city} average {city_avg}, so {name} is doing better than most peers.",
         "Compared to the broader {city} restaurant scene, where the average is {city_avg}, this is a stronger showing.",
@@ -118,15 +127,15 @@ PHRASE_BANK: dict[str, list[str]] = {
         "Among {city} restaurants, the typical score is {city_avg}; {name} is comfortably above that bar.",
     ],
     "comparison_worse_than_city": [
-        "{name}'s latest score of {score} falls below the {city} average of {city_avg}.",
+        "{name_poss} latest score of {score} falls below the {city} average of {city_avg}.",
         "That's lower than the typical {city} restaurant, which scores around {city_avg}.",
         "By comparison, the average {city} facility scores {city_avg}, putting {name} on the weaker side.",
         "Restaurants in {city} average {city_avg}, so {name} trails the local norm.",
-        "The city-wide average sits at {city_avg}, which {name}'s {score} doesn't quite reach.",
+        "The city-wide average sits at {city_avg}, which {name_poss} {score} doesn't quite reach.",
         "Compared to other {city} restaurants (averaging {city_avg}), there's room to close the gap.",
     ],
     "comparison_average": [
-        "{name}'s latest score is in line with the {city} average of {city_avg}.",
+        "{name_poss} latest score is in line with the {city} average of {city_avg}.",
         "That falls roughly in the middle of the pack for {city} restaurants.",
         "Compared to the broader {city} restaurant scene, this is about average.",
         "{name} scores about where you'd expect for a {city} restaurant.",

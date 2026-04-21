@@ -7,6 +7,7 @@ from app.models.restaurant import Restaurant
 from app.models.inspection import Inspection
 from app.utils import get_region_display, get_region_aliases
 from app.helpers.summary import build_summary
+from app.helpers.inspection_collapse import collapse_inspections
 
 
 def _cuisine_slug(label: str) -> str:
@@ -170,6 +171,12 @@ def render_restaurant(restaurant):
 
     if not inspections:
         abort(404)
+
+    # Boston's source data pairs every Fail with a closeout Pass/CP ~7–14
+    # days later that re-stamps the same violations. Collapsing pairs here
+    # means the timeline, stat cards, and summary all see the same logical
+    # visits. Other regions are no-ops through this helper.
+    inspections = collapse_inspections(inspections)
 
     latest_inspection = inspections[0]
     latest_violations = latest_inspection.violations
