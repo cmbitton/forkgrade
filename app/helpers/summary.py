@@ -572,15 +572,27 @@ def _build_p4(restaurant, latest, fid: int) -> str | None:
                 city_avg=f'{avg:.0f}')
 
 
-def _build_conclusion(restaurant, latest, inspections, fid: int) -> str:
+def _build_conclusion(restaurant, latest, inspections, fid: int) -> str | None:
     """One closing sentence appended to whichever paragraph fits best.
 
-    Read off the latest tier and the sum of recent violations to pick a
-    positive/neutral/caution closer.
+    Returns None (caller omits the closer) when:
+      - fewer than 2 inspections on file — positive closers like "consistent
+        compliance" and "steady performance over time" claim a pattern that a
+        single data point can't support.
+      - low tier but worsening trend — the positive closer ("the history is
+        a positive one", "reads well") directly contradicts the P2 sentence
+        reporting violations climbing. Swap to the neutral slot so the final
+        line acknowledges the concern instead of papering over it.
     """
+    if len(inspections) < 2:
+        return None
     tier = _tier_for(latest.score)
     if tier == 'low':
-        slot = 'conclusion_positive'
+        trend = _trend(inspections)
+        if trend and trend['direction'] == 'worsening':
+            slot = 'conclusion_neutral'
+        else:
+            slot = 'conclusion_positive'
     elif tier == 'high':
         slot = 'conclusion_caution'
     else:
@@ -804,7 +816,9 @@ def build_summary(facility_id: int) -> dict | None:
     # P4: comparison (city or region fallback)
     p4 = _build_p4(restaurant, latest, fid)
 
-    # Conclusion: append to last available paragraph so the closer always lands
+    # Conclusion: appended to the last available paragraph. May be None when
+    # the closer would contradict earlier content (thin record, or a low-tier
+    # facility whose trend is worsening) — caller skips the append in that case.
     conclusion = _build_conclusion(restaurant, latest, inspections, fid)
 
     paragraphs.append(p1)
@@ -813,8 +827,8 @@ def build_summary(facility_id: int) -> dict | None:
     if p3:
         paragraphs.append(p3)
     if p4:
-        paragraphs.append(p4 + ' ' + conclusion)
-    else:
+        paragraphs.append(p4 + ' ' + conclusion if conclusion else p4)
+    elif conclusion:
         # Tack the closer onto whichever paragraph ended up last.
         paragraphs[-1] = paragraphs[-1] + ' ' + conclusion
 
