@@ -140,6 +140,15 @@ def create_app():
             canonical_url=app.config['BASE_URL'] + '/'
         ), 404
 
+    @app.errorhandler(410)
+    def gone(e):
+        return render_template(
+            '410.html',
+            title='Page Removed | ' + app.config['SITE_NAME'],
+            description='This page has been permanently removed.',
+            canonical_url=app.config['BASE_URL'] + '/'
+        ), 410
+
     @app.errorhandler(500)
     def server_error(e):
         return render_template(

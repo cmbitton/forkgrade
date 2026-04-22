@@ -44,6 +44,16 @@ def legacy_san_antonio(subpath):
     return _legacy_texas_redirect(subpath)
 
 
+# Tennessee was dropped in April 2026 (see commit dc9a551). ~16K URLs were
+# indexed by Google; returning 410 instead of the default 404 tells search
+# engines the removal is permanent so they de-index faster. The slug stays
+# reserved — we should not re-introduce a region called 'tennessee'.
+@region_bp.route('/tennessee/', defaults={'subpath': ''})
+@region_bp.route('/tennessee/<path:subpath>')
+def removed_tennessee(subpath):
+    abort(410)
+
+
 _NON_RESTAURANT_TYPES = frozenset([
     'School / Childcare', 'Healthcare Facility', 'Grocery / Market', 'Catering'
 ])
