@@ -47,6 +47,8 @@ if not os.environ.get('DATABASE_URL'):
     from dotenv import load_dotenv
     load_dotenv()
 
+from app.helpers.address import normalize_street
+
 # FDA Food Code severity map (shared across all importers).
 # Keys are FDA Food Code section numbers; values are 'P', 'Pf', or 'C'.
 try:
@@ -347,7 +349,7 @@ def parse_address(raw: str):
 
     m = _STATE_ZIP_RE.search(raw)
     if not m:
-        return raw.title(), 'Houston', STATE, None
+        return normalize_street(raw.title()), 'Houston', STATE, None
 
     state  = m.group(1)
     zip5   = m.group(2)
@@ -362,13 +364,13 @@ def parse_address(raw: str):
             n_tokens = len(city_upper.split())
             parts = before.rsplit(None, n_tokens)
             before = parts[0] if len(parts) > 1 else before
-        return before.title(), city, state, zip5
+        return normalize_street(before.title()), city, state, zip5
 
     # Last word before state abbreviation = city, unless it's a street suffix.
     parts = before.rsplit(None, 1)
     if len(parts) == 2 and parts[1] not in _STREET_SUFFIXES:
-        return parts[0].title(), parts[1].title(), state, zip5
-    return before.title(), 'Houston', state, zip5
+        return normalize_street(parts[0].title()), parts[1].title(), state, zip5
+    return normalize_street(before.title()), 'Houston', state, zip5
 
 
 # ── HTTP session ──────────────────────────────────────────────────────────────

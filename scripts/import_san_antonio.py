@@ -60,6 +60,8 @@ if not os.environ.get('DATABASE_URL'):
     from dotenv import load_dotenv
     load_dotenv()
 
+from app.helpers.address import normalize_street
+
 # Shared FDA Food Code severity table (same lookup Houston uses).
 try:
     sys.path.insert(0, str(Path(__file__).parent))
@@ -282,7 +284,7 @@ def parse_address(raw: str) -> tuple:
 
     m = _STATE_ZIP_RE.search(s)
     if not m:
-        return s.title(), 'San Antonio', STATE, None
+        return normalize_street(s.title()), 'San Antonio', STATE, None
 
     state  = m.group(1).upper()
     zip5   = m.group(2)
@@ -292,7 +294,7 @@ def parse_address(raw: str) -> tuple:
     if ',' in before:
         street_part, city_part = before.rsplit(',', 1)
         city   = city_part.strip().title() or 'San Antonio'
-        street = street_part.strip().title() or None
+        street = normalize_street(street_part.strip().title()) or None
         return street, city, state, zip5
 
     # No comma — address is wedged together without punctuation. Peel off a
@@ -300,9 +302,9 @@ def parse_address(raw: str) -> tuple:
     # whole thing is the street.
     m2 = _TRAIL_CITY_RE.search(before)
     if m2:
-        street = before[:m2.start()].strip().title() or None
+        street = normalize_street(before[:m2.start()].strip().title()) or None
         return street, 'San Antonio', state, zip5
-    return before.title() or None, 'San Antonio', state, zip5
+    return normalize_street(before.title()) or None, 'San Antonio', state, zip5
 
 
 # ── HTTP ──────────────────────────────────────────────────────────────────────
