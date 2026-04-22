@@ -10,6 +10,144 @@ _SUFFIX_RE = re.compile(
 # Strip legal entity name before D/B/A — keep only the trade name after it
 _DBA_RE = re.compile(r'^.+\bD[/.]?B[/.]?A\b\.?\s+', re.IGNORECASE)
 
+
+# Philadelphia source data packs names as "owner / legal / DBA / facility type / code",
+# joined by slashes. The full chain reads as spam across the page (h1, breadcrumb,
+# title, FAQ repeated 5+ times), so extract the DBA for display.
+
+# Vendor/licence codes: V00959, #V05193, V-03000, ID# V00762, #55 & 56, 03655, -03001
+_PHILLY_CODE_RE = re.compile(
+    r'^(?:ID\s*#?:?\s*)?[-#]?V[\s\-#]?\d+[A-Z0-9\-]*$'
+    r'|^#\s*\d+(?:\s*(?:&|and)\s*#?\s*\d+)?$'
+    r'|^-?\d+$',
+    re.IGNORECASE,
+)
+# Philly facility-type tags (not real business names).
+_PHILLY_FACILITY_RE = re.compile(
+    r'^(?:Permanent\s+Special\s+Event(?:\s+(?:Food\s+)?Vendor)?'
+    r'|Special\s+Events?\s+Permanent\s+Vendor'
+    r'|Mobile\s+Food(?:\s+(?:Unit|Vendor))?'
+    r'|Commissary(?:\s*#?\s*\d+)?'
+    r'|Tent\s*#?\s*\d+'
+    r'|Roamer'
+    r'|Curbstand(?:\s*#?\s*\d+(?:\s*(?:&|and)\s*#?\s*\d+)?)?'
+    r')$',
+    re.IGNORECASE,
+)
+# "Lastname, Firstname" owner pattern. Permissive on both sides so compound
+# surnames ("Jimenez Ramirez, Griselda") and "&"/middle-name firstnames match.
+_PHILLY_OWNER_COMMA_RE = re.compile(
+    r"^[A-Z][A-Za-z.\-' ]*,\s*[A-Z][A-Za-z.\-' &]+$"
+)
+# 2- or 3-word "FirstName LastName" shape — weaker owner signal used only to tie-break
+# between two plain-trade-looking segments (no digits, no &, each word title-case).
+_PHILLY_BARE_NAME_RE = re.compile(
+    r"^[A-Z][a-z'.\-]+(?:\s+[A-Z][a-z'.\-]+){1,2}$"
+)
+# Tokens that, when present in a segment, flag it as a trade/business name
+# rather than a person name. Used only to break ties when the first segment
+# looks like a bare person name (e.g. 'Clifton White/Seafood Soul/-V07203').
+_PHILLY_TRADE_WORD_RE = re.compile(
+    r'\b(?:Food|Foods|Cart|Truck|Kitchen|Cafe|Caf\xe9|Grill|Restaurant|Bakery'
+    r'|Bistro|Pizza|Gyro|Halal|Taste|Fruit|Salad|Smoothie|Smoothies|Market'
+    r'|Shop|Store|BBQ|Deli|Bagel|Bagels|Juice|Cream|Donuts?|Burger|Burgers'
+    r'|Seafood|Chicken|Catering|Brewing|Brewery|Vineyards|Cider|Treats'
+    r'|Concessions|Dishes|Cakes|Cupcakes|Tacos|Burritos|Sushi|Ramen|Noodles?'
+    r'|Coffee|Wings|Steaks|Lunch|Express|Soul|Eats|Cuisine|Pretzel'
+    r'|Cheesesteak|Hoagies?|Pops)\b',
+    re.IGNORECASE,
+)
+
+
+def _philly_classify(seg: str) -> str:
+    if _PHILLY_CODE_RE.match(seg):
+        return 'code'
+    if _PHILLY_FACILITY_RE.match(seg):
+        return 'facility'
+    if _PHILLY_OWNER_COMMA_RE.match(seg):
+        return 'owner'
+    if _SUFFIX_RE.search(seg):
+        return 'legal'
+    return 'other'
+
+
+def _philly_split_outside_parens(s: str) -> list[str]:
+    """Split on '/' but ignore slashes inside parentheses. Keeps names like
+    'Vie (Event Space w/ Bars)' and 'Nanee's Kitchen (Indian/Pakistani)' intact."""
+    out, cur, depth = [], [], 0
+    for ch in s:
+        if ch == '(':
+            depth += 1
+            cur.append(ch)
+        elif ch == ')':
+            depth = max(0, depth - 1)
+            cur.append(ch)
+        elif ch == '/' and depth == 0:
+            out.append(''.join(cur))
+            cur = []
+        else:
+            cur.append(ch)
+    out.append(''.join(cur))
+    return out
+
+
+def _parse_philly_name(name: str) -> str:
+    """Extract the DBA from Philly's slash-packed legal-chain names.
+
+    Philadelphia inspection data joins segments like
+    'Gibson, Shelia / Pastry by Her Llc / Pastry by Her / Permanent Special Event Vendor'.
+    The chain gets repeated in the h1, title, breadcrumb, AI summary, and every
+    FAQ question — unreadable at ~80 chars. Pull out just the trade name.
+
+    Only collapses when the chain carries recognizable metadata (owner-comma
+    segment, legal suffix, code, or facility-type tag). Dual-brand names like
+    'KFC / Taco Bell' or 'Mochinut/Ebisu' have no such markers and pass through
+    untouched.
+    """
+    if '/' not in name:
+        return name
+    segments = [s.strip() for s in _philly_split_outside_parens(name)]
+    segments = [s for s in segments if s]
+    if len(segments) < 2:
+        return name
+
+    kinds = [_philly_classify(s) for s in segments]
+    if not any(k in ('owner', 'code', 'facility', 'legal') for k in kinds):
+        return name  # no chain markers — likely a dual-brand shared location
+
+    # Canonical pattern is [owner?] / [legal] / [dba] / [facility/code*].
+    # Prefer the 'other' segment immediately following a legal segment.
+    for i, k in enumerate(kinds):
+        if k == 'legal':
+            for j in range(i + 1, len(kinds)):
+                if kinds[j] == 'other':
+                    return segments[j]
+            return _SUFFIX_RE.sub('', segments[i]).strip().rstrip(',').strip()
+
+    # No legal segment — take the first 'other'. If the first 'other' looks
+    # like a bare person name (e.g. 'Ron Bzdewka') and the next 'other' clearly
+    # doesn't (contains a lowercase connector like 'of'/'by', a digit, '&',
+    # parens, or has 3+ words), the first is likely owner-as-trade-name.
+    others = [i for i, k in enumerate(kinds) if k == 'other']
+    if not others:
+        # All segments are owner/code/facility — nothing to show, return first.
+        return segments[0]
+    first = others[0]
+    if len(others) >= 2 and _PHILLY_BARE_NAME_RE.match(segments[first]):
+        nxt = segments[others[1]]
+        looks_like_trade = (
+            len(nxt.split()) >= 3
+            or any(c.isdigit() for c in nxt)
+            or '&' in nxt
+            or '(' in nxt
+            or re.search(r'\b(?:of|by|the|and|on|with|\'?s)\b', nxt, re.IGNORECASE)
+            or _PHILLY_TRADE_WORD_RE.search(nxt) is not None
+        )
+        if looks_like_trade:
+            return nxt
+    return segments[first]
+
+
 def _aka_key(s: str) -> str:
     """Normalize a name for redundancy comparison: lowercase, strip legal
     suffixes, collapse whitespace, drop non-alphanumerics. Lets us decide
@@ -174,8 +312,15 @@ class Restaurant(db.Model):
         Pantanos Restaurant Chicago", "Kaiser Tiger — Kaisertiger") and the
         suffix adds noise rather than information. Drop the aka half when a
         normalized comparison shows it carries the same content.
+
+        Philadelphia packs names as 'owner / LLC / DBA / facility-type / code'
+        joined by slashes — extract the DBA so pages don't repeat the 80-char
+        chain across h1, title, breadcrumb, and FAQ.
         """
-        name = _DBA_RE.sub('', self.name).strip()
+        name = self.name
+        if self.region == 'philadelphia':
+            name = _parse_philly_name(name)
+        name = _DBA_RE.sub('', name).strip()
         name = _collapse_redundant_aka(name)
         name = _SUFFIX_RE.sub('', name).strip().rstrip(',').strip()
         return _smart_title(name)

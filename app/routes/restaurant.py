@@ -215,7 +215,7 @@ def render_restaurant(restaurant):
     # Build JSON-LD
     local_biz = {
         "@type": "Restaurant",
-        "name": restaurant.name,
+        "name": restaurant.display_name,
         "areaServed": {
             "@type": "AdministrativeArea",
             "name": get_region_display(restaurant.region),
@@ -267,7 +267,7 @@ def render_restaurant(restaurant):
                     {
                         "@type": "ListItem",
                         "position": 4,
-                        "name": restaurant.name,
+                        "name": restaurant.display_name,
                         "item": current_app.config['BASE_URL'] + f'/{restaurant.region}/{restaurant.slug}/'
                     }
                 ]
