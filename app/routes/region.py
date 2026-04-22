@@ -1,5 +1,4 @@
 import logging
-import re
 import time
 from datetime import date, timedelta
 
@@ -13,7 +12,11 @@ from app.db import db, cache
 from app.models.restaurant import Restaurant
 from app.models.inspection import Inspection
 from app.routes.restaurant import render_restaurant
-from app.utils import get_region_display, get_region_aliases, region_location, search_restaurants
+from app.utils import (
+    get_region_display, get_region_aliases, region_location, search_restaurants,
+    city_slug as _city_slug, cuisine_slug as _cuisine_slug,
+    city_slug_legacy as _city_slug_legacy, cuisine_slug_legacy as _cuisine_slug_legacy,
+)
 
 region_bp = Blueprint('region', __name__)
 
@@ -25,11 +28,27 @@ region_bp = Blueprint('region', __name__)
 # /<region>/ routes, so these match first. These slugs must remain reserved —
 # we can never introduce a new region called 'houston' or 'san-antonio' again.
 
-def _legacy_texas_redirect(subpath: str = ''):
-    target = f'/texas/{subpath}' if subpath else '/texas/'
+def _redirect_301(target: str):
     if request.query_string:
         target = f'{target}?{request.query_string.decode()}'
     return redirect(target, code=301)
+
+
+def _legacy_texas_redirect(subpath: str = ''):
+    return _redirect_301(f'/texas/{subpath}' if subpath else '/texas/')
+
+
+def _canonical_for_legacy_slug(path_slug, cities, cuisine_types):
+    """If `path_slug` matches a legacy (accent-stripped) slug for a city or
+    cuisine in the region, return the canonical slug. Returns None otherwise."""
+    for row in cities:
+        c = row[0]
+        if c and _city_slug_legacy(c) == path_slug:
+            return _city_slug(c)
+    for ct in cuisine_types:
+        if _cuisine_slug_legacy(ct['label']) == path_slug:
+            return ct['slug']
+    return None
 
 
 @region_bp.route('/houston/', defaults={'subpath': ''})
@@ -83,20 +102,6 @@ def _scored_restaurants(region, order='asc', limit=5, days=None):
         .limit(limit)
         .all()
     )
-
-
-def _city_slug(city: str) -> str:
-    c = city.lower().replace("'", '')
-    c = re.sub(r'\s+', '-', c)
-    return re.sub(r'[^a-z0-9-]', '', c)
-
-
-def _cuisine_slug(label: str) -> str:
-    s = label.lower()
-    s = re.sub(r"[/&'\u2019,]+", '-', s)
-    s = re.sub(r'\s+', '-', s)
-    s = re.sub(r'[^a-z0-9-]', '', s)
-    return re.sub(r'-+', '-', s).strip('-')
 
 
 def _home_state(region: str) -> str | None:
@@ -711,6 +716,11 @@ def region_sub(region, path_slug):
         return render_cuisine(region, path_slug, cuisine_label, rows,
                               total=total, page=page, sort=sort, sort_dir=sort_dir)
 
+    # 4. Legacy accent-stripped slug fallback — see city_slug_legacy in utils.
+    canonical = _canonical_for_legacy_slug(path_slug, cities, cuisine_types)
+    if canonical and canonical != path_slug:
+        return _redirect_301(f'/{region}/{canonical}/')
+
     abort(404)
 
 
@@ -723,6 +733,13 @@ def region_city_cuisine(region, city_slug_str, cuisine_slug_str):
         None
     )
     if not city_name:
+        # Legacy accent-stripped city slug → 301 to canonical form
+        legacy = next(
+            (c[0] for c in cities if c[0] and _city_slug_legacy(c[0]) == city_slug_str),
+            None
+        )
+        if legacy:
+            return _redirect_301(f'/{region}/{_city_slug(legacy)}/{cuisine_slug_str}/')
         abort(404)
 
     # Validate against the city-specific cuisine list — the city page is what
@@ -732,6 +749,15 @@ def region_city_cuisine(region, city_slug_str, cuisine_slug_str):
     cuisine_map = {ct['slug']: ct['label'] for ct in cuisine_types}
     cuisine_label = cuisine_map.get(cuisine_slug_str)
     if not cuisine_label:
+        # Legacy accent-stripped cuisine slug → 301 to canonical form
+        legacy = next(
+            (ct for ct in cuisine_types
+             if _cuisine_slug_legacy(ct['label']) == cuisine_slug_str
+             and ct['slug'] != cuisine_slug_str),
+            None
+        )
+        if legacy:
+            return _redirect_301(f'/{region}/{city_slug_str}/{legacy["slug"]}/')
         abort(404)
 
     sort = request.args.get('sort', 'date')

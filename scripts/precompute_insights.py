@@ -35,10 +35,7 @@ from sqlalchemy import func
 app = create_app()
 
 
-def _city_slug(city: str) -> str:
-    c = city.lower().replace("'", '')
-    c = re.sub(r'\s+', '-', c)
-    return re.sub(r'[^a-z0-9-]', '', c)
+from app.utils import city_slug as _city_slug
 
 
 def compute_region(region: str) -> dict | None:

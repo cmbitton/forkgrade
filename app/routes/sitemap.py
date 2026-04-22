@@ -1,24 +1,9 @@
-import re
-
 from flask import Blueprint, Response, current_app, redirect
 from sqlalchemy import func
 from app.db import db, cache
 from app.models.restaurant import Restaurant
 from app.models.inspection import Inspection
-
-
-def _cuisine_slug(label: str) -> str:
-    s = label.lower()
-    s = re.sub(r"[/&'\u2019,]+", '-', s)
-    s = re.sub(r'\s+', '-', s)
-    s = re.sub(r'[^a-z0-9-]', '', s)
-    return re.sub(r'-+', '-', s).strip('-')
-
-
-def _city_slug(city: str) -> str:
-    c = city.lower().replace("'", '')
-    c = re.sub(r'\s+', '-', c)
-    return re.sub(r'[^a-z0-9-]', '', c)
+from app.utils import city_slug as _city_slug, cuisine_slug as _cuisine_slug
 
 
 sitemap_bp = Blueprint('sitemap', __name__)

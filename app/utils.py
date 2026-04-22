@@ -1,11 +1,57 @@
 """Shared utility helpers."""
 
 import re
+import unicodedata
 
 from sqlalchemy import func
 from app.db import db
 from app.models.restaurant import Restaurant
 from app.models.inspection import Inspection
+
+
+def _strip_accents(s: str) -> str:
+    """NFKD-normalize and drop combining marks so é → e, ñ → n, etc.
+
+    Without this, the slug functions' final [^a-z0-9-] strip would drop
+    accented chars entirely ('café' → 'caf'), losing a full letter.
+    """
+    return ''.join(
+        c for c in unicodedata.normalize('NFKD', s)
+        if not unicodedata.combining(c)
+    )
+
+
+def city_slug(city: str) -> str:
+    c = _strip_accents(city.lower()).replace("'", '')
+    c = re.sub(r'\s+', '-', c)
+    return re.sub(r'[^a-z0-9-]', '', c)
+
+
+def cuisine_slug(label: str) -> str:
+    s = _strip_accents(label.lower())
+    s = re.sub(r"[/&'\u2019,]+", '-', s)
+    s = re.sub(r'\s+', '-', s)
+    s = re.sub(r'[^a-z0-9-]', '', s)
+    return re.sub(r'-+', '-', s).strip('-')
+
+
+# The pre-2026-04 slug forms stripped accented chars entirely instead of
+# normalizing them (é → '' rather than 'e'), producing slugs like
+# 'caf-breakfast'. These legacy helpers reproduce that exact behavior so
+# the region routes can 301 already-indexed URLs to the canonical form.
+
+def city_slug_legacy(city: str) -> str:
+    c = city.lower().replace("'", '')
+    c = re.sub(r'\s+', '-', c)
+    return re.sub(r'[^a-z0-9-]', '', c)
+
+
+def cuisine_slug_legacy(label: str) -> str:
+    s = label.lower()
+    s = re.sub(r"[/&'\u2019,]+", '-', s)
+    s = re.sub(r'\s+', '-', s)
+    s = re.sub(r'[^a-z0-9-]', '', s)
+    return re.sub(r'-+', '-', s).strip('-')
 
 REGION_INFO = {
     'rhode-island': {

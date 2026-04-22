@@ -5,17 +5,9 @@ from sqlalchemy.orm import selectinload
 from app.db import db, cache
 from app.models.restaurant import Restaurant
 from app.models.inspection import Inspection
-from app.utils import get_region_display, get_region_aliases
+from app.utils import get_region_display, get_region_aliases, cuisine_slug as _cuisine_slug
 from app.helpers.summary import build_summary
 from app.helpers.inspection_collapse import collapse_inspections
-
-
-def _cuisine_slug(label: str) -> str:
-    s = label.lower()
-    s = re.sub(r"[/&'\u2019,]+", '-', s)
-    s = re.sub(r'\s+', '-', s)
-    s = re.sub(r'[^a-z0-9-]', '', s)
-    return re.sub(r'-+', '-', s).strip('-')
 
 
 def get_nearby_restaurants(restaurant, limit=3):
