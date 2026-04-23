@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ title }}</title>
     <meta name="description" content="{{ description }}">
-    {% if request.args.get('page', '1') != '1' %}
+    {% if noindex or request.args.get('page', '1') != '1' %}
     <meta name="robots" content="noindex, follow">
     {% endif %}
     <link rel="canonical" href="{{ canonical_url }}">
@@ -23,9 +23,7 @@
     {% block extra_head %}{% endblock %}
     <!-- Google AdSense -->
     <meta name="google-adsense-account" content="ca-pub-8741538256400039">
-    {% if 'Googlebot' not in request.user_agent.string %}
     <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-8741538256400039" crossorigin="anonymous"></script>
-    {% endif %}
     <!-- Google tag (gtag.js) -->
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-PWJ78F72ZF"></script>
     <script>

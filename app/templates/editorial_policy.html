@@ -1,0 +1,44 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container" style="max-width: 720px; padding-top: 32px; padding-bottom: 64px;">
+    <h1>Editorial Policy</h1>
+    <p class="page-meta" style="color: var(--text-muted); font-size: 14px; margin-bottom: 24px;">Last updated: April 22, 2026</p>
+    <p>ForkGrade publishes health inspection records for over 220,000 food establishments across nine U.S. regions. This page describes how the site is maintained, how content is produced, how corrections are handled, and how editorial independence is preserved. The goal is to be transparent about what we do and don't do with the data we publish.</p>
+
+    <h2>Ownership and maintenance</h2>
+    <p>ForkGrade is operated by <strong>Curtis Bitton</strong>, an independent software engineer based in Cranston, Rhode Island. There is no parent company, no staff, and no outside investors. All editorial and technical decisions are made by the site owner. Contact: <a href="mailto:forkgrade@gmail.com">forkgrade@gmail.com</a>.</p>
+
+    <h2>Data sources and freshness</h2>
+    <p>Every inspection record published on ForkGrade comes directly from a government health agency. We do not add, remove, or modify inspection findings, scores, violation descriptions, or inspection dates — these are carried through exactly as the issuing agency published them. A full list of our data sources is on the <a href="/methodology#data-sources">Methodology page</a>.</p>
+    <p>Data is refreshed daily from each source. There is typically a short lag between when an inspection is conducted in the field and when it appears on the agency's public feed — ForkGrade cannot publish an inspection before the agency does. If an inspection appears to be missing from a facility's page, it usually means it has not yet posted to the agency source; re-check in a day or two.</p>
+
+    <h2>Scoring and risk tiers</h2>
+    <p>Each inspection is assigned a 0–100 score and a risk tier (Low / Medium / High) calculated by ForkGrade from the underlying violations. These <em>are not</em> official government ratings — they are our own independent calculation, applied uniformly across regions so facilities can be compared on a common scale. The formula, violation weights, and tier cutoffs are published in full on the <a href="/methodology">Methodology page</a>.</p>
+    <p>Where an agency issues its own official rating (notably NYC DOH's A / B / C letter grades), we display that official rating exactly as the agency assigned it, alongside our calculated score. We do not override, adjust, or interpret official grades.</p>
+
+    <h2>How summaries are generated</h2>
+    <p>Most facility pages include a short plain-English summary describing the facility's inspection history. These summaries are produced by a deterministic pipeline with the following properties:</p>
+    <ul class="plain-list">
+        <li><strong>Data-grounded.</strong> Every claim in a summary is derived from a specific, measurable fact in the facility's own inspection records — inspection count, average time between visits, violation frequency by severity, trend direction between the most recent inspections, most common violation category, and so on. Nothing is inferred or invented.</li>
+        <li><strong>Deterministic.</strong> The same facility produces the same summary every time. Phrasing is drawn from a curated bank of sentence templates; template selection is a hash of the facility's ID, so output is stable across requests but varied across facilities.</li>
+        <li><strong>Conservative on thin data.</strong> When a facility has too few inspections on file to support a given claim (for example, a trend statement requires at least three inspections), that sentence is omitted rather than guessed. Facilities with very limited records receive correspondingly shorter summaries.</li>
+        <li><strong>Not free-form generative AI.</strong> Summaries are not produced by a large language model writing prose from scratch. There is no risk of the model inventing violations, dates, scores, or inspector findings that do not exist in the underlying data.</li>
+    </ul>
+    <p>The inspection records, violation details, and scores shown below the summary come directly from the source agency and are independent of the summary pipeline. If the summary and the raw data ever disagree, the raw data is authoritative.</p>
+
+    <h2>Corrections and fact-checking</h2>
+    <p>Because every inspection record is pulled directly from the issuing agency, disputes about whether a particular violation was cited, or whether a score is correct, must be resolved with that agency — ForkGrade cannot alter inspection findings. If you believe an inspection record is incorrect, contact the health department that issued it (listed on the <a href="/methodology#data-sources">Methodology page</a>).</p>
+    <p>Errors that <em>are</em> within our control — for example: duplicate listings for the same facility, incorrect facility name display, missing address components, a broken page, or a summary sentence that does not reflect the underlying data — should be reported to <a href="mailto:forkgrade@gmail.com">forkgrade@gmail.com</a>. We aim to acknowledge correction requests within a few business days and publish fixes as soon as they are verified. A facility's inspection history is never edited to favor or disfavor the business.</p>
+
+    <h2>Independence</h2>
+    <p>ForkGrade is not affiliated with, sponsored by, or endorsed by any government agency, restaurant, restaurant chain, trade association, or food-safety certification body.</p>
+    <p>We do not accept payment to remove inspection records, suppress violations, alter scores, adjust risk tiers, or change the content of a summary. Requests of this kind are declined. We do not offer "featured," "verified," or paid-placement listings for restaurants.</p>
+
+    <h2>Advertising</h2>
+    <p>ForkGrade carries advertising through Google AdSense, a programmatic ad network. Ad placement and targeting are controlled by Google, not by the site owner; we do not manually choose which advertisers appear. Advertisers have no influence over which facilities are listed, what inspection data is shown, how scores are calculated, or what summaries are written. Ad revenue is kept strictly separate from editorial decisions. See the <a href="/privacy">Privacy Policy</a> for details on advertising cookies and data collection.</p>
+
+    <h2>Contact</h2>
+    <p>Corrections, data-source requests, general questions, and feedback: <a href="mailto:forkgrade@gmail.com">forkgrade@gmail.com</a>.</p>
+</div>
+{% endblock %}

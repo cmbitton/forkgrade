@@ -75,6 +75,16 @@ def privacy():
     )
 
 
+@home_bp.route('/editorial-policy', strict_slashes=False)
+def editorial_policy():
+    return render_template(
+        'editorial_policy.html',
+        title=f'Editorial Policy | {current_app.config["SITE_NAME"]}',
+        description='How ForkGrade maintains editorial independence, sources inspection data, generates summaries, and handles corrections.',
+        canonical_url=current_app.config['BASE_URL'] + '/editorial-policy',
+    )
+
+
 @home_bp.route('/methodology', strict_slashes=False)
 def methodology():
     return render_template(

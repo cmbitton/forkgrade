@@ -3,13 +3,19 @@
 {% block content %}
 <div class="container" style="max-width: 720px; padding-top: 32px; padding-bottom: 64px;">
     <h1>About ForkGrade</h1>
+    <p class="page-meta" style="color: var(--text-muted); font-size: 14px; margin-bottom: 24px;">Last updated: April 22, 2026</p>
     <p>ForkGrade is a free, independent tool that collects restaurant and food facility health inspection records from government sources and presents them in a consistent, searchable format.</p>
 
     <p>Health inspection data is public, but it's often buried in agency databases that are slow, hard to search, and inconsistent across regions. ForkGrade pulls that data into one place so it's easy to look up any location, see its inspection history, and understand its risk level at a glance. Covers restaurants, cafes, schools, grocery stores, food trucks, and any other establishment subject to a health inspection.</p>
 
+    <h2>Who built this</h2>
+    <p>ForkGrade is built and maintained by <strong>Curtis Bitton</strong>, a software engineer based in Cranston, Rhode Island, with a degree in kinesiology from the University of Rhode Island.</p>
+    <p>The site started as a response to a specific frustration: my own state's health inspection portal is painful to use — slow search, clumsy filters, no way to see a location's full history at a glance. A quick survey of other states' portals showed the same pattern almost everywhere. Health inspection data is public precisely so the public can use it, but the interfaces most agencies publish make that nearly impossible in practice. ForkGrade is my attempt to close that gap: one consistent format, every region, readable at a glance before you decide where to eat.</p>
+    <p>For questions, corrections, or data-source requests: <a href="mailto:forkgrade@gmail.com">forkgrade@gmail.com</a>. See the <a href="/editorial-policy">Editorial Policy</a> for how the site is maintained, how corrections are handled, and how independence is preserved.</p>
+
     <h2>Coverage</h2>
     <p>ForkGrade currently covers:</p>
-    <ul>
+    <ul class="plain-list">
         <li><strong>Florida</strong> — Florida Department of Business and Professional Regulation (~80,000 locations statewide)</li>
         <li><strong>New York City</strong> — NYC Department of Health and Mental Hygiene (~27,400 locations)</li>
         <li><strong>Texas</strong> — City of Houston Health Department and San Antonio Metropolitan Health District (~25,700 locations)</li>
@@ -24,7 +30,10 @@
     <p>With over 220,000 facilities and 1.1 million+ inspection records, ForkGrade is the largest free, independent restaurant health inspection database in the United States.</p>
 
     <h2>What we show</h2>
-    <p>For each facility we show: inspection dates, scores, violation details, and a risk tier (Low / Medium / High). NYC inspections also show the official DOH letter grade (A, B, or C) where one was issued. Many facilities also include an AI-generated plain-English summary of their most recent inspection.</p>
+    <p>For each facility we show: inspection dates, scores, violation details, and a risk tier (Low / Medium / High). NYC inspections also show the official DOH letter grade (A, B, or C) where one was issued.</p>
+
+    <h2>How summaries are written</h2>
+    <p>Most facility pages include a short plain-English summary of the facility's inspection history — how often it's inspected, what its most common violations are, and whether recent visits trend better or worse than earlier ones. These summaries are produced by a deterministic pipeline that reads the facility's own inspection records and selects appropriate phrasing from a curated bank of templates. This is not free-form generative AI: every claim in a summary maps back to a specific fact in that facility's data, and the same facility produces the same summary every time. Where a facility has too few inspections on file to support a given claim, the corresponding sentence is omitted rather than guessed. See the <a href="/editorial-policy">Editorial Policy</a> for a full description of the summary pipeline.</p>
 
     <h2>Independence</h2>
     <p>ForkGrade is not affiliated with any government agency. Scores, tiers, and risk labels are calculated by us from public violation data — they are not official ratings. See the <a href="/methodology">Methodology</a> page for how scores are calculated.</p>

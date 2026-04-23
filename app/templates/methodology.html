@@ -3,6 +3,7 @@
 {% block content %}
 <div class="container" style="max-width: 720px; padding-top: 32px; padding-bottom: 64px;">
     <h1>Methodology</h1>
+    <p class="page-meta" style="color: var(--text-muted); font-size: 14px; margin-bottom: 24px;">Last updated: April 22, 2026</p>
     <p>ForkGrade converts raw violation data into a single 0–100 score for each inspection. Here's exactly how that works.</p>
 
     <h2>Scoring formula</h2>
@@ -68,7 +69,7 @@
     <p>NYC DOH issues official letter grades (A, B, C) after scored inspections. Where available, we display this grade alongside our score. The letter grade comes directly from the city — we do not calculate it. A grade of A requires fewer than 14 points on the city's own penalty scale; B is 14–27 points; C is 28 or more.</p>
     <p>Some inspections are marked <em>Grade Pending</em> — this happens when a restaurant requests a hearing to contest its grade, or when a re-inspection is scheduled. For these, we show an estimated risk tier based on violations, not an official grade.</p>
 
-    <h2>Data sources</h2>
+    <h2 id="data-sources">Data sources</h2>
     <ul>
         <li><strong>Florida</strong> — Florida Department of Business and Professional Regulation, Division of Hotels and Restaurants public inspection records</li>
         <li><strong>NYC</strong> — <a href="https://data.cityofnewyork.us/Health/DOHMH-New-York-City-Restaurant-Inspection-Results/43nn-pn8j" target="_blank" rel="noopener">NYC Open Data: DOHMH Restaurant Inspection Results</a></li>
