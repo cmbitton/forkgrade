@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ title }}</title>
     <meta name="description" content="{{ description }}">
-    {% if noindex or request.args.get('page', '1') != '1' %}
+    {% if request.args.get('page', '1') != '1' %}
     <meta name="robots" content="noindex, follow">
     {% endif %}
     <link rel="canonical" href="{{ canonical_url }}">

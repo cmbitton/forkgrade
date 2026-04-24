@@ -200,12 +200,6 @@ def render_restaurant(restaurant):
         else:
             total_minor += 1
 
-    # Ultra-thin pages (1 inspection, 0 violations) render <300 words and dilute
-    # site-wide quality. Noindex them so Google drops them from the index on
-    # recrawl — they remain crawlable and accessible, just not ranked.
-    total_violations_latest = total_critical + total_major + total_minor
-    noindex = total_inspections <= 1 and total_violations_latest == 0
-
     nearby = get_nearby_restaurants(restaurant)
 
     summary_data = build_summary(restaurant.id)
@@ -393,7 +387,6 @@ def render_restaurant(restaurant):
         score_display_tier=score_display_tier,
         violation_scheme=violation_scheme,
         summary_data=summary_data,
-        noindex=noindex,
     )
     cache.set(cache_key, response, timeout=300)
     return response
