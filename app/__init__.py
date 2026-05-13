@@ -1,11 +1,44 @@
+import ipaddress
 import logging
 import time
+import urllib.request
 
-from flask import Flask, g, has_request_context, render_template, request
+from flask import Flask, abort, g, has_request_context, render_template, request
 from flask_limiter import Limiter
 from sqlalchemy import event
 from sqlalchemy.engine import Engine
 from dotenv import load_dotenv
+
+# Cloudflare IP ranges — fetched at startup, with hardcoded fallback so the
+# app still boots if cloudflare.com is unreachable. Source: cloudflare.com/ips/
+_CLOUDFLARE_FALLBACK = [
+    '173.245.48.0/20', '103.21.244.0/22', '103.22.200.0/22', '103.31.4.0/22',
+    '141.101.64.0/18', '108.162.192.0/18', '190.93.240.0/20', '188.114.96.0/20',
+    '197.234.240.0/22', '198.41.128.0/17', '162.158.0.0/15', '104.16.0.0/13',
+    '104.24.0.0/14', '172.64.0.0/13', '131.0.72.0/22',
+    '2400:cb00::/32', '2606:4700::/32', '2803:f800::/32', '2405:b500::/32',
+    '2405:8100::/32', '2a06:98c0::/29', '2c0f:f248::/32',
+]
+
+
+def _load_cloudflare_networks():
+    cidrs = []
+    for url in ('https://www.cloudflare.com/ips-v4', 'https://www.cloudflare.com/ips-v6'):
+        try:
+            with urllib.request.urlopen(url, timeout=5) as resp:
+                cidrs.extend(resp.read().decode().strip().split())
+        except Exception:
+            cidrs = None
+            break
+    if not cidrs:
+        logging.getLogger('forkgrade').warning(
+            'Could not fetch Cloudflare IP ranges; using hardcoded fallback'
+        )
+        cidrs = _CLOUDFLARE_FALLBACK
+    return [ipaddress.ip_network(c) for c in cidrs]
+
+
+CLOUDFLARE_NETWORKS = _load_cloudflare_networks()
 
 load_dotenv()
 
@@ -41,7 +74,26 @@ def create_app():
     cache.init_app(app)
 
     def _real_ip():
+        cf = request.headers.get('CF-Connecting-IP')
+        if cf:
+            return cf
         return request.headers.get('X-Forwarded-For', request.remote_addr).split(',')[0].strip()
+
+    # Origin lockdown: reject any traffic that didn't come through Cloudflare.
+    # Without this, the SG country block at the CF edge is trivially bypassed
+    # by hitting the Fly hostname directly.
+    @app.before_request
+    def _reject_non_cloudflare():
+        peer = request.headers.get('Fly-Client-IP')
+        if not peer:
+            # No header = internal Fly traffic (e.g. health checks). Allow.
+            return
+        try:
+            ip = ipaddress.ip_address(peer)
+        except ValueError:
+            abort(403)
+        if not any(ip in net for net in CLOUDFLARE_NETWORKS):
+            abort(403)
 
     # Rate limiting — 60 req/min per IP, in-memory (single machine)
     limiter = Limiter(
